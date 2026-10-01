@@ -226,7 +226,10 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const device = registry.getDevice(id)
     if (!device) throw new ActionError('Device not found', 404)
     if (!devices.activePath(id) && !video.hasStream(id)) throw new ActionError(`${device.name} is unreachable`, 503)
-    const got = await grabSnapshot(devices, video, device, deps.config.deviceTimeoutMs * 2)
+    // A camera that is restarting or has just changed network is "unavailable", not a hub fault.
+    const got = await grabSnapshot(devices, video, device, deps.config.deviceTimeoutMs * 2).catch((err: unknown) => {
+      throw new ActionError(err instanceof Error ? err.message : 'No picture available', 503)
+    })
     const snap = got?.snapshot ?? null
     if (!snap) throw new ActionError('No picture available', 503)
     reply.header('Cache-Control', 'no-store').type(snap.contentType)

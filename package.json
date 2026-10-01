@@ -12,7 +12,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "node scripts/dev.mjs",
     "dev:hub": "npm run dev -w hub",
     "dev:app": "npm run dev -w app",
     "build": "npm run build -w app",
@@ -20,6 +20,10 @@
     "test": "npm run test -w hub",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1",
-    "reset-pin": "node --no-warnings scripts/reset-pin.mjs"
+    "reset-pin": "node --no-warnings scripts/reset-pin.mjs",
+    "test:e2e": "node e2e/walk.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
   }
 }

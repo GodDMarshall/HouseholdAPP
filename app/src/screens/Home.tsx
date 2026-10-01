@@ -3,6 +3,7 @@ import type { Device, DeviceState } from '@house/shared'
 import { Icon, kindIcon } from '../components/icons.tsx'
 import { ConnChip, Sheet, TopBar } from '../components/ui.tsx'
 import { Stills } from '../components/Viewer.tsx'
+import { api } from '../api.ts'
 import { act, isOn, stateLine, useBusy, usePending } from '../lib.ts'
 import { navigate } from '../router.ts'
 import { useStore } from '../store.ts'
@@ -13,6 +14,13 @@ export function HomeScreen() {
   const connected = useStore((s) => s.connected)
   const pending = usePending()
   const [lockUp, setLockUp] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const illustrative = devices.filter((d) => d.family === 'virtual')
+  const removeIllustrative = async () => {
+    for (const d of illustrative) await api.del(`/api/devices/${d.id}`).catch(() => undefined)
+    setClearing(false)
+    useStore.getState().toast('Illustrative devices removed', 'info')
+  }
 
   const rooms = useMemo(() => {
     const map = new Map<string, Device[]>()
@@ -51,6 +59,36 @@ export function HomeScreen() {
             <strong>{devices.find((d) => d.id === a.deviceId)?.name ?? 'Device'}:</strong> {a.label} needs you. Tap to finish it.
           </button>
         ))}
+        {illustrative.length > 0 ? (
+          <div className="card" style={{ margin: '8px 0 4px' }}>
+            <p style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 10 }}>
+              {illustrative.length === devices.length
+                ? 'These are illustrative devices so you can try everything. Add your own camera, gate or lights with the + button.'
+                : `${illustrative.length} illustrative device${illustrative.length === 1 ? ' is' : 's are'} still here. Remove them when your own are in.`}
+            </p>
+            <div className="btnrow">
+              <button className="btn sm primary" onClick={() => navigate('/add')}>
+                <Icon name="plus" />
+                Add my device
+              </button>
+              <button className="btn sm" onClick={() => setClearing(true)}>
+                Remove the illustrative ones
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {clearing ? (
+          <Sheet title="Remove the illustrative devices?" subtitle={`${illustrative.map((d) => d.name).join(', ')}. Your own devices are not touched.`} onClose={() => setClearing(false)}>
+            <div className="btnrow">
+              <button className="btn danger" onClick={() => void removeIllustrative()}>
+                Remove them
+              </button>
+              <button className="btn ghost" onClick={() => setClearing(false)}>
+                Keep them
+              </button>
+            </div>
+          </Sheet>
+        ) : null}
         {lightsOn.length > 0 || gates.length > 0 ? (
           <div className="btnrow" style={{ margin: '8px 0 0' }}>
             {lightsOn.length > 0 ? (

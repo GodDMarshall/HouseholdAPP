@@ -8,3 +8,5 @@ hub/bin/
 app/dev-dist/
 .DS_Store
 Thumbs.db
+e2e/shots/
+backups/
