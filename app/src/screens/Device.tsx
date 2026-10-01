@@ -68,16 +68,25 @@ function PendingCards({ deviceId }: { deviceId: string }) {
       {pending.map((a) => {
         const handoff = typeof a.result?.handoff === 'string' ? a.result.handoff : null
         const note = typeof a.result?.note === 'string' ? a.result.note : null
+        const isCall = handoff?.startsWith('tel:') ?? false
+        const handoffLabel = typeof a.result?.handoffLabel === 'string' ? a.result.handoffLabel : isCall ? 'Call the device' : 'Send the text'
+        const text = typeof a.result?.text === 'string' ? a.result.text : null
         return (
           <div key={a.id} className="card" style={{ border: '1px solid rgba(251,191,36,0.5)' }}>
             <h2 style={{ color: 'var(--warn)' }}>{a.label} needs you</h2>
             <p style={{ marginBottom: 12 }}>
-              {note ?? (handoff ? 'The hub has no GSM modem, so this text goes from your phone. Tap Send, press send in your messages app, then come back and confirm.' : 'The hub could not confirm this by itself.')}
+              {note ??
+                (isCall
+                  ? 'This device opens when it gets a call from your number. Tap Call; it hangs up by itself. Then come back and confirm.'
+                  : handoff
+                    ? 'The hub has no GSM modem, so this text goes from your phone. Tap Send, press send in your messages app, then come back and confirm.'
+                    : 'The hub could not confirm this by itself.')}
             </p>
+            {text && !isCall ? <p className="note">Message: {text}</p> : null}
             {handoff ? (
-              <a className="btn primary block" href={smsHref(handoff)} style={{ textDecoration: 'none', marginBottom: 10 }}>
+              <a className="btn primary block" href={isCall ? handoff : smsHref(handoff)} style={{ textDecoration: 'none', marginBottom: 10 }}>
                 <Icon name="sms" />
-                Send the text
+                {handoffLabel}
               </a>
             ) : null}
             <div className="btnrow">

@@ -336,22 +336,26 @@ export class ActionQueue {
   // ------------------------------------------------------------ announcing
 
   private announce(action: Action): void {
-    const name = this.deviceName(action.deviceId)
+    const device = this.deps.registry.getDevice(action.deviceId)
+    const name = device?.name ?? 'Device'
+    const level = device?.notify ?? 'important'
     const body = describeResult(action)
-    const chatty = action.type === 'ptz.move' || action.type === 'ptz.stop' || action.type === 'probe' || action.type === 'wifi.scan'
+    const chatty = action.type === 'ptz.move' || action.type === 'ptz.stop' || action.type === 'probe' || action.type === 'wifi.scan' || action.type === 'snapshot'
     if (action.status === 'done') {
-      if (chatty) return
+      if (action.type !== 'snapshot' && chatty) return
       this.deps.events.record({ deviceId: action.deviceId, type: 'action.done', message: `${name}: ${action.label} — ${body}`, data: { actionId: action.id } })
-      if (NOTIFY_DONE.has(action.type)) {
+      const push = level === 'everything' ? !chatty : level === 'important' && NOTIFY_DONE.has(action.type)
+      if (push) {
         void this.deps.notifier.send({ title: `${name}: ${action.label}`, body, tag: `action:${action.deviceId}:${action.type}`, url: `/device/${action.deviceId}`, deviceId: action.deviceId })
       }
     } else if (action.status === 'failed') {
       this.deps.events.record({ deviceId: action.deviceId, level: 'error', type: 'action.failed', message: `${name}: ${action.label} failed — ${action.error}`, data: { actionId: action.id } })
-      if (action.type !== 'ptz.move' && action.type !== 'ptz.stop' && action.type !== 'probe') {
+      if (level !== 'none' && action.type !== 'ptz.move' && action.type !== 'ptz.stop' && action.type !== 'probe') {
         void this.deps.notifier.send({ title: `${name}: ${action.label} failed`, body: action.error ?? 'Failed', tag: `action:${action.deviceId}:${action.type}`, url: `/device/${action.deviceId}`, deviceId: action.deviceId, level: 'error' })
       }
     } else if (action.status === 'needs-confirmation') {
       this.deps.events.record({ deviceId: action.deviceId, level: 'warn', type: 'action.needs-confirmation', message: `${name}: ${action.label} needs you — ${body}`, data: { actionId: action.id } })
+      // Always sent: the command is stuck until the owner acts.
       void this.deps.notifier.send({ title: `${name}: ${action.label} needs you`, body, tag: `action:${action.deviceId}:${action.type}`, url: `/device/${action.deviceId}`, deviceId: action.deviceId, level: 'warn' })
     }
   }

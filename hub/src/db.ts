@@ -1,8 +1,13 @@
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite'
 
-export type DB = DatabaseSync
+// node:sqlite is loaded through require so bundlers and test runners that do not
+// know this built-in yet leave it alone.
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')
+
+export type DB = DatabaseSyncType
 
 const MIGRATIONS: string[] = [
   // v1 — the registry
@@ -90,6 +95,10 @@ const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL,
     last_used_at TEXT NOT NULL
   );
+  `,
+  // v2 — per-device notification level
+  `
+  ALTER TABLE devices ADD COLUMN notify TEXT NOT NULL DEFAULT 'important';
   `,
 ]
 

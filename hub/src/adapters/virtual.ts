@@ -91,6 +91,22 @@ function stateOf(r: Runtime, sim: Simulate): Record<string, unknown> {
   }
 }
 
+/**
+ * Like a real device: a command sent to an address on a network the device has
+ * left, or while it restarts, never arrives. Thrown (not returned) so the hub
+ * treats it as a transport failure and fails over.
+ */
+function assertReachable(ctx: AdapterContext, r: Runtime): void {
+  if (Date.now() < r.offlineUntil) throw new Error('Device is restarting')
+  if (ctx.path.kind === 'lan') {
+    const target = ctx.path.wifiNetworkId ? ctx.wifi(ctx.path.wifiNetworkId)?.ssid ?? null : null
+    if (target && r.ssid && target !== r.ssid) throw new Error(`No answer on "${target}": the device is on "${r.ssid}"`)
+  }
+  if (ctx.path.kind === 'cellular' && !ctx.bool('simReachable', false)) {
+    throw new Error('The carrier gives this SIM a private address, so nothing can connect in to it')
+  }
+}
+
 function jitter(lo: number, hi: number): number {
   return Math.round(lo + Math.random() * (hi - lo))
 }
@@ -169,13 +185,14 @@ const adapter: Adapter = {
 
   async readState(ctx) {
     const r = rt(ctx)
+    assertReachable(ctx, r)
     return stateOf(r, simulateOf(ctx.device.config))
   },
 
   async execute(ctx, action: Action): Promise<ActionResult> {
     const r = rt(ctx)
     const sim = simulateOf(ctx.device.config)
-    if (Date.now() < r.offlineUntil) return { ok: false, error: 'Device is restarting' }
+    if (ctx.path.kind !== 'sms') assertReachable(ctx, r)
     const p = action.params
 
     switch (action.type) {
@@ -282,12 +299,13 @@ const adapter: Adapter = {
     const r = rt(ctx)
     const sim = simulateOf(ctx.device.config)
     if (sim !== 'camera') throw new Error('Only the illustrative camera produces snapshots')
-    if (Date.now() < r.offlineUntil) throw new Error('Device is restarting')
+    assertReachable(ctx, r)
     return { contentType: 'image/svg+xml', body: Buffer.from(renderScene(ctx.device.name, r)) }
   },
 
   async setWifi(ctx, target): Promise<ActionResult> {
     const r = rt(ctx)
+    assertReachable(ctx, r)
     if (!target.ssid) return { ok: false, error: 'No network name given' }
     if (!target.password) return { ok: false, error: `No password stored for "${target.ssid}"` }
     r.offlineUntil = Date.now() + WIFI_MOVE_MS
@@ -297,6 +315,7 @@ const adapter: Adapter = {
 
   async scanWifi(ctx): Promise<WifiScanEntry[]> {
     const r = rt(ctx)
+    assertReachable(ctx, r)
     const seen = new Map<string, WifiScanEntry>()
     const add = (ssid: string | null, signal: number) => {
       if (ssid && !seen.has(ssid)) seen.set(ssid, { ssid, signal, security: 'WPA2' })

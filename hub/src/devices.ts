@@ -189,13 +189,16 @@ export class DeviceManager {
       })
   }
 
-  /** The path commands should use right now: pinned if alive, else the active one. */
+  /**
+   * The path commands should use right now. The health check already prefers a
+   * pinned path while it answers, so the active path is always the right one;
+   * a pinned path that has gone quiet must not swallow commands.
+   */
   activePath(deviceId: string): ConnectionPath | null {
     const device = this.deps.registry.getDevice(deviceId)
     const r = this.runtimes.get(deviceId)
     if (!device || !r) return null
-    const id = r.pinnedPathId ?? r.activePathId
-    return device.paths.find((p) => p.id === id && p.enabled) ?? null
+    return device.paths.find((p) => p.id === r.activePathId && p.enabled) ?? null
   }
 
   // ---------------------------------------------------------------- checks
@@ -283,7 +286,7 @@ export class DeviceManager {
           : `${device.name} reachable on ${chosen.label}`,
         data: { pathId: chosen.id, previousPathId: previousId },
       })
-      if (prev && r.online !== null) {
+      if (prev && r.online !== null && (device.notify === 'everything' || device.notify === 'important')) {
         void this.deps.notifier.send({
           title: better ? `${device.name} back on ${chosen.label}` : `${device.name} now on ${chosen.label}`,
           body: better ? 'The better connection is working again.' : `${prev.label} stopped answering, so the hub switched over.`,
@@ -342,8 +345,10 @@ export class DeviceManager {
     const was = r.online
     r.online = online
     if (was === null) return
+    const quiet = device.notify === 'none'
     if (was && !online) {
       this.deps.events.record({ deviceId: device.id, level: 'error', type: 'device.offline', message: `${device.name}: ${reason ?? 'unreachable'}` })
+      if (quiet) return
       void this.deps.notifier.send({
         title: `${device.name} unreachable`,
         body: reason ?? 'No connection path is answering.',
@@ -354,6 +359,7 @@ export class DeviceManager {
       })
     } else if (!was && online) {
       this.deps.events.record({ deviceId: device.id, level: 'info', type: 'device.online', message: `${device.name} is reachable again` })
+      if (quiet) return
       void this.deps.notifier.send({ title: `${device.name} is back`, body: 'Reachable again.', tag: `offline:${device.id}`, url: `/device/${device.id}`, deviceId: device.id })
     }
   }
@@ -382,12 +388,20 @@ export class DeviceManager {
     if (pathId && !device.paths.some((p) => p.id === pathId && p.enabled)) throw new Error('That connection is not enabled on this device')
     r.pinnedPathId = pathId
     const label = device.paths.find((p) => p.id === pathId)?.label
+    const state = await this.check(deviceId, { force: true })
+    if (pathId && state.activePathId !== pathId) {
+      // The chosen connection is not answering: do not leave a pin on a dead path.
+      r.pinnedPathId = null
+      this.persist(r)
+      this.deps.events.record({ deviceId, level: 'warn', type: 'path.pin-failed', message: `${device.name}: ${label} is not answering, so it was not pinned` })
+      return this.broadcast(deviceId) ?? state
+    }
     this.deps.events.record({
       deviceId,
       type: 'path.pinned',
       message: pathId ? `${device.name}: connection pinned to ${label}` : `${device.name}: automatic connection choice restored`,
     })
-    return this.check(deviceId, { force: true })
+    return this.broadcast(deviceId) ?? state
   }
 
   pinnedPathId(deviceId: string): string | null {

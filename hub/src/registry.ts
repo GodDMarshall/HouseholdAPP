@@ -1,5 +1,6 @@
 import {
   DEVICE_KINDS,
+  NOTIFY_LEVELS,
   PATH_KINDS,
   SECRET_MASK,
   type ConnectionPath,
@@ -67,8 +68,8 @@ export class Registry {
     this.db.exec('BEGIN;')
     try {
       this.db
-        .prepare('INSERT INTO devices (id, name, kind, family, room, config, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, clean.name, clean.kind, clean.family, clean.room, JSON.stringify(storedConfig), sort, ts, ts)
+        .prepare('INSERT INTO devices (id, name, kind, family, room, config, sort, notify, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, clean.name, clean.kind, clean.family, clean.room, JSON.stringify(storedConfig), sort, clean.notify ?? 'important', ts, ts)
       this.replacePaths(id, clean.paths)
       this.db.prepare('INSERT INTO device_runtime (device_id, updated_at) VALUES (?, ?)').run(id, ts)
       this.db.exec('COMMIT;')
@@ -92,6 +93,7 @@ export class Registry {
       config: input.config ?? this.decryptConfig(String(existing.family), parseJson(existing.config as string, {})),
       paths: input.paths ?? this.listPaths(id).map(pathToInput),
       sort: input.sort ?? Number(existing.sort),
+      notify: input.notify ?? (existing.notify as DeviceInput['notify']),
     }
     const clean = this.validateDevice(merged)
     const previous = parseJson<Record<string, unknown>>(existing.config as string, {})
@@ -100,8 +102,8 @@ export class Registry {
     this.db.exec('BEGIN;')
     try {
       this.db
-        .prepare('UPDATE devices SET name = ?, kind = ?, family = ?, room = ?, config = ?, sort = ?, updated_at = ? WHERE id = ?')
-        .run(clean.name, clean.kind, clean.family, clean.room, JSON.stringify(storedConfig), clean.sort ?? 0, ts, id)
+        .prepare('UPDATE devices SET name = ?, kind = ?, family = ?, room = ?, config = ?, sort = ?, notify = ?, updated_at = ? WHERE id = ?')
+        .run(clean.name, clean.kind, clean.family, clean.room, JSON.stringify(storedConfig), clean.sort ?? 0, clean.notify ?? 'important', ts, id)
       if (input.paths) this.replacePaths(id, clean.paths)
       this.db.exec('COMMIT;')
     } catch (err) {
@@ -253,6 +255,7 @@ export class Registry {
     const name = (input.name ?? '').trim()
     if (!name) throw new ValidationError('Give the device a name')
     if (!DEVICE_KINDS.includes(input.kind)) throw new ValidationError(`Unknown device kind "${String(input.kind)}"`)
+    if (input.notify !== undefined && !NOTIFY_LEVELS.includes(input.notify)) throw new ValidationError(`Unknown notification level "${String(input.notify)}"`)
     let adapter
     try {
       adapter = getAdapter(input.family)
@@ -341,6 +344,7 @@ export class Registry {
       kind: r.kind as Device['kind'],
       family,
       room: String(r.room ?? ''),
+      notify: NOTIFY_LEVELS.includes(r.notify as Device['notify']) ? (r.notify as Device['notify']) : 'important',
       config,
       capabilities,
       paths: this.listPaths(String(r.id)),

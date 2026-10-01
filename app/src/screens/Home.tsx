@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { Device, DeviceState } from '@house/shared'
 import { Icon, kindIcon } from '../components/icons.tsx'
-import { ConnChip, TopBar } from '../components/ui.tsx'
+import { ConnChip, Sheet, TopBar } from '../components/ui.tsx'
 import { Stills } from '../components/Viewer.tsx'
 import { act, isOn, stateLine, useBusy, usePending } from '../lib.ts'
 import { navigate } from '../router.ts'
@@ -12,6 +12,7 @@ export function HomeScreen() {
   const states = useStore((s) => s.states)
   const connected = useStore((s) => s.connected)
   const pending = usePending()
+  const [lockUp, setLockUp] = useState(false)
 
   const rooms = useMemo(() => {
     const map = new Map<string, Device[]>()
@@ -25,6 +26,8 @@ export function HomeScreen() {
 
   const offline = devices.filter((d) => states[d.id] && !states[d.id]!.online).length
   const lightsOn = devices.filter((d) => d.capabilities.includes('power') && isOn(states[d.id]))
+  const gates = devices.filter((d) => d.capabilities.includes('gate') && states[d.id]?.online)
+  const gatesToClose = gates.filter((d) => states[d.id]?.state.gate !== 'closed')
   const sub = devices.length === 0 ? 'No devices yet' : offline > 0 ? `${devices.length} devices · ${offline} unreachable` : `${devices.length} devices · all reachable`
 
   return (
@@ -48,13 +51,46 @@ export function HomeScreen() {
             <strong>{devices.find((d) => d.id === a.deviceId)?.name ?? 'Device'}:</strong> {a.label} needs you. Tap to finish it.
           </button>
         ))}
-        {lightsOn.length > 0 ? (
+        {lightsOn.length > 0 || gates.length > 0 ? (
           <div className="btnrow" style={{ margin: '8px 0 0' }}>
-            <button className="btn sm" onClick={() => lightsOn.forEach((d) => void act(d.id, 'power.off'))}>
-              <Icon name="moon" />
-              All lights off ({lightsOn.length})
-            </button>
+            {lightsOn.length > 0 ? (
+              <button className="btn sm" onClick={() => lightsOn.forEach((d) => void act(d.id, 'power.off'))}>
+                <Icon name="moon" />
+                All lights off ({lightsOn.length})
+              </button>
+            ) : null}
+            {gates.length > 0 ? (
+              <button className="btn sm" onClick={() => setLockUp(true)}>
+                <Icon name="lock" />
+                Lock up
+              </button>
+            ) : null}
           </div>
+        ) : null}
+        {lockUp ? (
+          <Sheet title="Lock up the house?" subtitle="One tap for the end of the day." onClose={() => setLockUp(false)}>
+            <p className="note">
+              {gatesToClose.length > 0 ? `Closes ${gatesToClose.map((d) => d.name).join(', ')}.` : 'Every gate already reports closed.'}{' '}
+              {lightsOn.length > 0 ? `Turns off ${lightsOn.length} light${lightsOn.length === 1 ? '' : 's'}.` : 'No lights are on.'}
+            </p>
+            <div className="btnrow">
+              <button
+                className="btn primary"
+                disabled={gatesToClose.length === 0 && lightsOn.length === 0}
+                onClick={() => {
+                  gatesToClose.forEach((d) => void act(d.id, 'gate.close'))
+                  lightsOn.forEach((d) => void act(d.id, 'power.off'))
+                  setLockUp(false)
+                }}
+              >
+                <Icon name="lock" />
+                Lock up
+              </button>
+              <button className="btn ghost" onClick={() => setLockUp(false)}>
+                Not now
+              </button>
+            </div>
+          </Sheet>
         ) : null}
         {devices.length === 0 ? (
           <div className="empty">

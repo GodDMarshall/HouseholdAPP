@@ -8,6 +8,7 @@ import {
   type DiscoveredDevice,
   type Family,
   type FamilyDescriptor,
+  type NotifyLevel,
   type PathInput,
   type PathKind,
 } from '@house/shared'
@@ -24,7 +25,15 @@ interface Draft {
   room: string
   config: Record<string, unknown>
   paths: PathInput[]
+  notify: NotifyLevel
 }
+
+const NOTIFY_CHOICES: Array<{ value: NotifyLevel; label: string }> = [
+  { value: 'everything', label: 'Everything it does' },
+  { value: 'important', label: 'What matters: gates, WiFi moves, problems' },
+  { value: 'problems', label: 'Only problems' },
+  { value: 'none', label: 'Nothing' },
+]
 
 interface TestResult {
   capabilities: Capability[]
@@ -67,7 +76,7 @@ export function DeviceForm({ id }: { id?: string }) {
   const toast = useStore((s) => s.toast)
 
   const [step, setStep] = useState(0)
-  const [draft, setDraft] = useState<Draft>({ name: '', kind: 'camera', family: '', room: '', config: {}, paths: [] })
+  const [draft, setDraft] = useState<Draft>({ name: '', kind: 'camera', family: '', room: '', config: {}, paths: [], notify: 'important' })
   const [loaded, setLoaded] = useState(!editing)
   const [test, setTest] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
@@ -83,7 +92,7 @@ export function DeviceForm({ id }: { id?: string }) {
 
   useEffect(() => {
     if (editing && existing && !loaded) {
-      setDraft({ name: existing.name, kind: existing.kind, family: existing.family, room: existing.room, config: { ...existing.config }, paths: existing.paths.map((p) => ({ ...p })) })
+      setDraft({ name: existing.name, kind: existing.kind, family: existing.family, room: existing.room, config: { ...existing.config }, paths: existing.paths.map((p) => ({ ...p })), notify: existing.notify })
       setLoaded(true)
     }
   }, [editing, existing, loaded])
@@ -274,6 +283,16 @@ export function DeviceForm({ id }: { id?: string }) {
         .map((f) => (
           <FieldInput key={f.name} spec={f} value={draft.config[f.name]} onChange={(v) => patch({ config: { ...draft.config, [f.name]: v } })} />
         ))}
+      <div className="field">
+        <label htmlFor="f-notify">Notify my phone about</label>
+        <select id="f-notify" className="select" value={draft.notify} onChange={(e) => patch({ notify: e.target.value as NotifyLevel })}>
+          {NOTIFY_CHOICES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </div>
       {family?.notes.map((n, i) => (
         <p key={i} className="note">
           {n}

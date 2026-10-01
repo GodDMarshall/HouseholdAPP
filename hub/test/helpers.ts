@@ -54,6 +54,7 @@ export function makeCtx(opts: CtxOptions): TestCtx {
     kind,
     family: opts.family,
     room: 'Lab',
+    notify: 'important',
     config,
     capabilities,
     paths: [path],

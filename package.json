@@ -2,7 +2,7 @@
   "name": "house-control",
   "version": "0.1.0",
   "private": true,
-  "description": "House Control — a private hub and touch-first app for the whole house: cameras, gate, lights, with WiFi/SIM failover.",
+  "description": "House Control \u2014 a private hub and touch-first app for the whole house: cameras, gate, lights, with WiFi/SIM failover.",
   "workspaces": [
     "shared",
     "hub",
@@ -17,8 +17,9 @@
     "dev:app": "npm run dev -w app",
     "build": "npm run build -w app",
     "start": "npm run start -w hub",
-    "test": "npm run test -w hub --if-present && npm run test -w app --if-present",
+    "test": "npm run test -w hub",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "setup": "node scripts/setup.mjs"
+    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1",
+    "reset-pin": "node --no-warnings scripts/reset-pin.mjs"
   }
 }

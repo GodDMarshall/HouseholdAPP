@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import WebSocket from 'ws'
 import { z } from 'zod'
-import { DEVICE_KINDS, PATH_KINDS, SECRET_MASK, type Device, type HubStatus } from '@house/shared'
+import { DEVICE_KINDS, NOTIFY_LEVELS, PATH_KINDS, SECRET_MASK, type Device, type HubStatus } from '@house/shared'
 import { familyDescriptors, getAdapter } from './adapters/index.ts'
 import type { ActionQueue } from './actions.ts'
 import { ActionError } from './actions.ts'
@@ -56,6 +56,7 @@ const deviceInput = z.object({
   config: z.record(z.unknown()).optional().default({}),
   paths: z.array(pathInput).optional().default([]),
   sort: z.number().int().optional(),
+  notify: z.enum(NOTIFY_LEVELS as [string, ...string[]]).optional(),
 })
 
 const actionInput = z.object({ type: z.string(), params: z.record(z.unknown()).optional() })
@@ -153,6 +154,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       kind: body.kind as Device['kind'],
       family: body.family as Device['family'],
       room: body.room,
+      notify: 'important',
       config,
       capabilities: adapter.capabilities(config, body.kind as Device['kind']),
       paths: body.paths.map((p, i) => ({

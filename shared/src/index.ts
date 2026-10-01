@@ -94,12 +94,22 @@ export interface PathHealth {
   error: string | null
 }
 
+/** How much this device may ping the phone. */
+export type NotifyLevel =
+  | 'everything' // every finished command, even a light switch
+  | 'important' // gates, WiFi moves, restarts, connection changes, anything that failed
+  | 'problems' // only failures and "unreachable"
+  | 'none'
+
+export const NOTIFY_LEVELS: NotifyLevel[] = ['everything', 'important', 'problems', 'none']
+
 export interface Device {
   id: string
   name: string
   kind: DeviceKind
   family: Family
   room: string
+  notify: NotifyLevel
   /** Family-specific settings (username, channel, device id ...). Secrets masked for the app. */
   config: Record<string, unknown>
   capabilities: Capability[]
@@ -118,6 +128,7 @@ export interface DeviceInput {
   config: Record<string, unknown>
   paths: PathInput[]
   sort?: number
+  notify?: NotifyLevel
 }
 
 export interface PathInput {
