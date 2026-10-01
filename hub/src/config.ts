@@ -27,6 +27,8 @@ export const config = {
     process.env.HC_GO2RTC_BIN ??
     path.join(HUB_ROOT, 'bin', process.platform === 'win32' ? 'go2rtc.exe' : 'go2rtc'),
   go2rtcPort: int(process.env.HC_GO2RTC_PORT, 1984),
+  /** Use a go2rtc that is already running elsewhere (e.g. http://127.0.0.1:1984) instead of starting one. */
+  go2rtcUrl: (process.env.HC_GO2RTC_URL?.trim().replace(/\/+$/, '') || null) as string | null,
   /** Serial port of a USB GSM modem, e.g. COM3 or /dev/ttyUSB0. Empty = hand SMS to the phone. */
   smsPort: process.env.HC_SMS_PORT?.trim() || null,
   /** How often each device's active path is checked. */

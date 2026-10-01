@@ -19,7 +19,7 @@ export class SmsTransport {
 
   async start(): Promise<void> {
     if (!this.portName) {
-      this.status = { modem: 'disabled', port: null, detail: 'No modem configured (HC_SMS_PORT). SMS will be handed to the phone.' }
+      this.status = { modem: 'disabled', port: null, detail: 'The hub has no GSM modem, so text commands are handed to your phone to send with one tap.' }
       return
     }
     try {
@@ -28,7 +28,11 @@ export class SmsTransport {
       this.log.info(`GSM modem ready on ${this.portName}`, { identity: this.modem.identity })
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
-      this.status = { modem: /Cannot find module|serialport/i.test(detail) ? 'missing' : 'error', port: this.portName, detail }
+      this.status = {
+        modem: /Cannot find module|serialport/i.test(detail) ? 'missing' : 'error',
+        port: this.portName,
+        detail: `The GSM modem on ${this.portName} is not answering, so text commands are handed to your phone instead.`,
+      }
       this.log.warn(`GSM modem unavailable on ${this.portName}: ${detail}`)
     }
   }

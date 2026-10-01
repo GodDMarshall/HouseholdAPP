@@ -137,6 +137,7 @@ export function resultText(a: Action): string {
   if (typeof r.power === 'boolean') return r.power ? 'now on' : 'now off'
   if (a.type === 'wifi.set' && typeof r.ssid === 'string') return r.onTarget === false ? `told to join ${r.ssid}` : `now on ${r.ssid}`
   if (a.type === 'reboot') return 'restarting'
+  if (a.type === 'path.switch' && a.params.pathId) return 'in use now'
   if (typeof r.summary === 'string') return r.summary
   if (a.type === 'snapshot') return 'picture saved'
   return 'done'

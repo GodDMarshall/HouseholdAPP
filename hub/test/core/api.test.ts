@@ -196,6 +196,8 @@ describe('HTTP API', () => {
     await t.settle(t.hub.actions.request(d.id, { type: 'power.on' }))
     const status = await t.hub.app.inject({ method: 'GET', url: '/api/hub/status', headers: auth() })
     expect(status.json()).toMatchObject({ devices: 1, video: { go2rtc: 'missing' }, sms: { modem: 'disabled' } })
+    expect(status.json().video.detail).toMatch(/Live video is not installed yet/)
+    expect(status.json().sms.detail).not.toMatch(/HC_/)
     const events = await t.hub.app.inject({ method: 'GET', url: `/api/events?deviceId=${d.id}`, headers: auth() })
     expect((events.json() as Array<{ type: string }>).some((e) => e.type === 'action.done')).toBe(true)
   })

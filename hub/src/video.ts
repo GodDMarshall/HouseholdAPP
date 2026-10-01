@@ -38,25 +38,55 @@ export class VideoManager {
     this.log = deps.log.child('video')
   }
 
+  /** go2rtc's HTTP API: an existing instance (HC_GO2RTC_URL) or the sidecar this hub runs. */
   get base(): string {
-    return `http://127.0.0.1:${this.port}`
+    return this.deps.config.go2rtcUrl ?? `http://127.0.0.1:${this.port}`
   }
 
-  async start(): Promise<void> {
-    const bin = this.deps.config.go2rtcBin
-    if (!fs.existsSync(bin)) {
-      this.status = {
-        go2rtc: 'missing',
-        version: null,
-        detail: `go2rtc not found at ${bin}. Run scripts\\get-go2rtc.ps1 (Windows) or scripts/get-go2rtc.sh to enable live video; snapshots still work.`,
-      }
-      this.log.warn(this.status.detail!)
-      return
-    }
-    this.writeConfig()
+  get wsBase(): string {
+    return this.base.replace(/^http/, 'ws')
+  }
+
+  private watch(): void {
     this.deps.bus.on('device.state', () => this.scheduleSync())
     this.deps.bus.on('device.upsert', () => this.scheduleSync())
     this.deps.bus.on('device.remove', () => this.scheduleSync())
+  }
+
+  async start(): Promise<void> {
+    if (this.deps.config.go2rtcUrl) {
+      // Someone else runs go2rtc (a service, Docker, another box): just use it.
+      this.watch()
+      try {
+        const res = await request(`${this.base}/api`, { timeoutMs: 3000 })
+        if (res.status !== 200) throw new Error(`HTTP ${res.status}`)
+        let version: string | null = null
+        try {
+          version = String((res.json() as { version?: string }).version ?? '') || null
+        } catch {
+          version = null
+        }
+        this.status = { go2rtc: 'running', version, detail: null }
+        await this.syncStreams()
+      } catch (err) {
+        this.status = { go2rtc: 'error', version: null, detail: 'The live video service is not answering. Cameras show still pictures until it is back.' }
+        this.log.warn(`go2rtc at ${this.base} is not answering: ${err instanceof Error ? err.message : err}`)
+      }
+      return
+    }
+    const bin = this.deps.config.go2rtcBin
+    if (!fs.existsSync(bin)) {
+      const how = process.platform === 'win32' ? 'Run scripts\\get-go2rtc.ps1 once' : 'Run scripts/pi/setup.sh once'
+      this.status = {
+        go2rtc: 'missing',
+        version: null,
+        detail: `Live video is not installed yet. ${how}, then restart the hub. Until then cameras show still pictures.`,
+      }
+      this.log.warn(`go2rtc not found at ${bin}. ${this.status.detail}`)
+      return
+    }
+    this.writeConfig()
+    this.watch()
     await this.launch()
   }
 

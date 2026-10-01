@@ -22,6 +22,7 @@ import { sleep, withTimeout } from './lib/http.ts'
 import type { Logger } from './lib/log.ts'
 import type { Notifier } from './notify.ts'
 import type { Registry } from './registry.ts'
+import { grabSnapshot } from './snapshot.ts'
 import type { WifiMover } from './wifi.ts'
 
 export interface VideoLike {
@@ -238,22 +239,14 @@ export class ActionQueue {
         return { result: { ok: true, result: { networks } }, pathId: live.id }
       }
       case 'snapshot': {
-        const adapter = devices.adapterFor(device)
-        let snap: Snapshot | null = null
-        let pathId: string | null = null
-        if (adapter.snapshot) {
-          const { ctx, path: live } = await this.liveContext(device)
-          pathId = live.id
-          snap = await withTimeout(adapter.snapshot(ctx), this.deps.config.deviceTimeoutMs * 2, 'Snapshot')
-        } else if (this.deps.video) {
-          snap = await this.deps.video.snapshot(device.id)
-          pathId = devices.activePath(device.id)?.id ?? null
-        }
-        if (!snap) return { result: { ok: false, error: 'No picture could be taken' }, pathId }
+        if (!devices.activePath(device.id)) await devices.check(device.id, { force: true })
+        const got = await grabSnapshot(devices, this.deps.video, device, this.deps.config.deviceTimeoutMs * 2)
+        if (!got) return { result: { ok: false, error: 'No picture could be taken' }, pathId: devices.activePath(device.id)?.id ?? null }
+        const snap = got.snapshot
         const ext = snap.contentType.includes('svg') ? 'svg' : snap.contentType.includes('png') ? 'png' : 'jpg'
         fs.writeFileSync(path.join(this.snapshotDir, `${action.id}.${ext}`), snap.body)
         this.pruneSnapshots()
-        return { result: { ok: true, result: { url: `/api/snapshots/${action.id}`, bytes: snap.body.length } }, pathId }
+        return { result: { ok: true, result: { url: `/api/snapshots/${action.id}`, bytes: snap.body.length } }, pathId: got.pathId }
       }
       default:
         return this.executeWithFailover(device, action)
@@ -436,6 +429,7 @@ function describeResult(a: Action): string {
   if (typeof r.power === 'boolean') return r.power ? 'Now on' : 'Now off'
   if (a.type === 'wifi.set' && typeof r.ssid === 'string') return `Now on ${r.ssid}`
   if (a.type === 'reboot') return 'Restarting'
+  if (a.type === 'path.switch' && a.params.pathId) return 'In use now'
   if (typeof r.summary === 'string') return r.summary
   if (a.type === 'sms.send') return 'Text sent'
   return 'Done'

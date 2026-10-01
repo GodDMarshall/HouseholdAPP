@@ -18,6 +18,7 @@ import { withTimeout } from './lib/http.ts'
 import type { Logger } from './lib/log.ts'
 import type { Notifier } from './notify.ts'
 import { Registry, ValidationError } from './registry.ts'
+import { grabSnapshot } from './snapshot.ts'
 import type { VideoManager } from './video.ts'
 
 export interface ApiDeps {
@@ -224,15 +225,9 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const { id } = req.params as { id: string }
     const device = registry.getDevice(id)
     if (!device) throw new ActionError('Device not found', 404)
-    const adapter = devices.adapterFor(device)
-    let snap = null
-    if (adapter.snapshot) {
-      const live = devices.activePath(id)
-      if (!live) throw new ActionError(`${device.name} is unreachable`, 503)
-      snap = await withTimeout(adapter.snapshot(devices.context(devices.unmasked(id), live)), deps.config.deviceTimeoutMs * 2, 'Snapshot')
-    } else {
-      snap = await video.snapshot(id)
-    }
+    if (!devices.activePath(id) && !video.hasStream(id)) throw new ActionError(`${device.name} is unreachable`, 503)
+    const got = await grabSnapshot(devices, video, device, deps.config.deviceTimeoutMs * 2)
+    const snap = got?.snapshot ?? null
     if (!snap) throw new ActionError('No picture available', 503)
     reply.header('Cache-Control', 'no-store').type(snap.contentType)
     return snap.body
@@ -241,7 +236,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const { id } = req.params as { id: string }
     const device = registry.getDevice(id)
     if (!device) throw new ActionError('Device not found', 404)
-    return { available: video.hasStream(id), name: id, go2rtc: video.status.go2rtc, canSnapshot: Boolean(devices.adapterFor(device).snapshot) || video.hasStream(id) }
+    return { available: video.hasStream(id), name: id, go2rtc: video.status.go2rtc, canSnapshot: device.capabilities.includes('snapshot') && (Boolean(devices.adapterFor(device).snapshot) || video.hasStream(id)) }
   })
 
   // ------------------------------------------------------------- actions
@@ -324,7 +319,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       socket.close(4404, 'No such stream')
       return
     }
-    const upstream = new WebSocket(`ws://127.0.0.1:${video.port}/api/ws?src=${encodeURIComponent(src)}`)
+    const upstream = new WebSocket(`${video.wsBase}/api/ws?src=${encodeURIComponent(src)}`)
     const pending: Array<string | Buffer> = []
     upstream.on('open', () => {
       for (const m of pending) upstream.send(m)
@@ -362,7 +357,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
           return
         }
         url.searchParams.delete('token')
-        proxyStream(req, reply, `http://127.0.0.1:${video.port}/api/${endpoint}${url.search}`)
+        proxyStream(req, reply, `${video.base}/api/${endpoint}${url.search}`)
       },
     })
   }
