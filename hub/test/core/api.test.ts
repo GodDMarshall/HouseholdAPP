@@ -194,6 +194,8 @@ describe('HTTP API', () => {
   it('reports hub status and the activity feed', async () => {
     const d = t.add({ name: 'Lamp', simulate: 'light' })
     await t.settle(t.hub.actions.request(d.id, { type: 'power.on' }))
+    await t.hub.video.start() // no go2rtc in the test folder
+    await t.hub.sms.start() // no modem configured
     const status = await t.hub.app.inject({ method: 'GET', url: '/api/hub/status', headers: auth() })
     expect(status.json()).toMatchObject({ devices: 1, video: { go2rtc: 'missing' }, sms: { modem: 'disabled' } })
     expect(status.json().video.detail).toMatch(/Live video is not installed yet/)
