@@ -32,9 +32,11 @@ if not exist "app\dist\index.html" (
   )
 )
 
+set HC_SHOW_PORT=8080
+if not "%HC_PORT%"=="" set HC_SHOW_PORT=%HC_PORT%
 echo.
 echo Starting House Control. Leave this window open.
-echo On this PC open:  http://localhost:8080
+echo On this PC open:  http://localhost:%HC_SHOW_PORT%
 echo.
 call npm start
 echo.
