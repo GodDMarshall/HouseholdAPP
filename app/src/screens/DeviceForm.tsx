@@ -181,7 +181,8 @@ export function DeviceForm({ id }: { id?: string }) {
       const saved = editing ? await api.put<Device>(`/api/devices/${id}`, body()) : await api.post<Device>('/api/devices', body())
       toast(`${saved.name} saved`, 'ok')
       // Fold the wizard's own steps away so Back from the new device goes home, not into an empty form.
-      if (!editing) await popSteps(step)
+      // (one more entry when the wizard was opened from the scan screen, so Back skips that too)
+      if (!editing) await popSteps(step + 1)
       navigate(`/device/${saved.id}`, true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save')
@@ -501,7 +502,7 @@ export function DeviceForm({ id }: { id?: string }) {
   const canNext = step === 0 ? true : step === 1 ? Boolean(family) : step === 2 ? Boolean(draft.name.trim()) : step === 3 ? draft.paths.length > 0 : false
   return (
     <>
-      <TopBar title="Add a device" sub={`Step ${step + 1} of 5 · ${titles[step]}`} onBack={() => (step === 0 ? back('/') : history.back())} />
+      <TopBar title="Add a device" sub={`Step ${step + 1} of 5 · ${titles[step]}`} onBack={() => (step === 0 ? back('/add') : history.back())} />
       <main className="content" style={{ paddingBottom: 40 }}>
         <div className="steps">
           {titles.map((_, i) => (

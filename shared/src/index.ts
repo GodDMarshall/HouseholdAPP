@@ -350,6 +350,15 @@ export type ServerMessage =
   | { type: 'event'; event: EventRecord }
   | { type: 'wifi.networks'; networks: WifiNetwork[] }
   | { type: 'hub.status'; status: HubStatus }
+  | { type: 'discover'; progress: DiscoverProgress }
+
+/** A network scan as it happens, so the app can draw devices appearing. */
+export interface DiscoverProgress {
+  phase: 'listening' | 'sweeping' | 'identifying' | 'done'
+  message: string
+  found: DiscoveredDevice[]
+  done: boolean
+}
 
 export type ClientMessage = { type: 'ping' }
 
@@ -365,6 +374,40 @@ export interface DiscoveredDevice {
   port: number | null
   detail: string
   config: Record<string, unknown>
+  /** How the hub came to know about it. */
+  via?: 'onvif' | 'mdns' | 'tuya' | 'scan' | 'address'
+  /** Config fields the owner still has to give before it can be added (username, password, localKey ...). */
+  needs?: string[]
+  /** Set when this device is already in the house. */
+  existingDeviceId?: string | null
+  /** Why it cannot simply be added, in plain words (e.g. needs the Smart Life account linked). */
+  hint?: string
+}
+
+/** The Smart Life / Tuya account link: lets the hub list the account's devices and fetch their keys. */
+export interface TuyaAccountStatus {
+  linked: boolean
+  region: string | null
+  /** Last characters of the access id, to recognise which project is linked. Never the secret. */
+  accessIdHint: string | null
+}
+
+export interface TuyaAccountDevice {
+  id: string
+  name: string
+  category: string
+  /** Plain name of the category: "Garage door opener", "Socket", "Light" ... */
+  categoryLabel: string
+  productName: string
+  online: boolean
+  /** Its address on the house network when the hub heard it there, else null (it is then reached through the cloud). */
+  lanHost: string | null
+  version: string | null
+  suggestedKind: DeviceKind
+  /** False when this build cannot drive that kind of device. */
+  supported: boolean
+  reason: string | null
+  existingDeviceId: string | null
 }
 
 // ---------------------------------------------------------------------------

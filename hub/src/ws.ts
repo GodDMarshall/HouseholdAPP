@@ -33,6 +33,7 @@ export function registerWs(app: FastifyInstance, deps: WsDeps): void {
       deps.bus.on('event', (event) => send({ type: 'event', event })),
       deps.bus.on('wifi.networks', (networks) => send({ type: 'wifi.networks', networks })),
       deps.bus.on('hub.status', (status) => send({ type: 'hub.status', status })),
+      deps.bus.on('discover', (progress) => send({ type: 'discover', progress })),
     ]
     const ping = setInterval(() => {
       if (socket.readyState === socket.OPEN) socket.ping()

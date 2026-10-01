@@ -17,6 +17,7 @@ import { Notifier } from './notify.ts'
 import { Registry } from './registry.ts'
 import { seedIfEmpty } from './seed.ts'
 import { SmsTransport } from './sms.ts'
+import { TuyaAccount } from './tuya-account.ts'
 import { VideoManager } from './video.ts'
 import { WifiMover } from './wifi.ts'
 import { registerWs } from './ws.ts'
@@ -33,6 +34,8 @@ export interface Hub {
   notifier: Notifier
   video: VideoManager
   sms: SmsTransport
+  discovery: Discovery
+  tuya: TuyaAccount
   status(): HubStatus
   /** Listen, start the health loop and the video sidecar. Returns the port actually bound. */
   start(): Promise<number>
@@ -61,6 +64,7 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
   const video = new VideoManager({ config, registry, devices, bus, log })
   const actions = new ActionQueue({ db, registry, devices, bus, events, notifier, wifi, video, log, config })
   const discovery = new Discovery(log)
+  const tuya = new TuyaAccount(db, box, registry, log, config.deviceTimeoutMs)
 
   const status = (): HubStatus => ({
     version: VERSION,
@@ -90,7 +94,7 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
   app.addContentTypeParser('application/sdp', { parseAs: 'string' }, (_req, body, done) => done(null, body))
   await app.register(fastifyWebsocket, { options: { maxPayload: 4 * 1024 * 1024 } })
   registerWs(app, { bus, auth, hello, log })
-  registerApi(app, { config, registry, devices, actions, events, notifier, auth, video, discovery, status, log })
+  registerApi(app, { config, registry, devices, actions, events, notifier, auth, video, discovery, tuya, bus, status, log })
 
   let housekeeping: NodeJS.Timeout | null = null
 
@@ -106,6 +110,8 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
     notifier,
     video,
     sms,
+    discovery,
+    tuya,
     status,
     async start() {
       await sms.start()

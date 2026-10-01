@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import WebSocket from 'ws'
 import { z } from 'zod'
-import { DEVICE_KINDS, NOTIFY_LEVELS, PATH_KINDS, SECRET_MASK, type Device, type HubStatus } from '@house/shared'
+import { DEVICE_KINDS, NOTIFY_LEVELS, PATH_KINDS, SECRET_MASK, type Device, type DiscoveredDevice, type HubStatus } from '@house/shared'
 import { familyDescriptors, getAdapter } from './adapters/index.ts'
 import type { ActionQueue } from './actions.ts'
 import { ActionError } from './actions.ts'
@@ -13,7 +13,8 @@ import { Auth, AuthError } from './auth.ts'
 import type { Config } from './config.ts'
 import type { DeviceManager } from './devices.ts'
 import type { Discovery } from './discovery.ts'
-import type { EventLog } from './events.ts'
+import type { Bus, EventLog } from './events.ts'
+import type { TuyaAccount } from './tuya-account.ts'
 import { withTimeout } from './lib/http.ts'
 import type { Logger } from './lib/log.ts'
 import type { Notifier } from './notify.ts'
@@ -32,6 +33,8 @@ export interface ApiDeps {
   auth: Auth
   video: VideoManager
   discovery: Discovery
+  tuya: TuyaAccount
+  bus: Bus
   status: () => HubStatus
   log: Logger
 }
@@ -69,7 +72,24 @@ const actionInput = z.object({ type: z.string(), params: z.record(z.unknown()).o
 const wifiInput = z.object({ ssid: z.string(), password: z.string().optional(), notes: z.string().optional() })
 
 export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
-  const { registry, devices, actions, events, notifier, auth, video, discovery, config, log } = deps
+  const { registry, devices, actions, events, notifier, auth, video, discovery, tuya, bus, config, log } = deps
+
+  /** Mark scan results that are already in the house, by address or by Tuya device id. */
+  const annotate = (list: DiscoveredDevice[]): DiscoveredDevice[] => {
+    const all = registry.listDevices()
+    return list.map((d) => {
+      const tuyaId = typeof d.config.deviceId === 'string' ? d.config.deviceId : null
+      const match = all.find((x) => (tuyaId && x.config.deviceId === tuyaId) || x.paths.some((p) => p.host === d.host && p.kind !== 'sms'))
+      return { ...d, existingDeviceId: match?.id ?? null }
+    })
+  }
+  /** The last scan, kept so an import knows where each Smart Life device lives on the network. */
+  let lastScan: DiscoveredDevice[] = []
+  const runScan = async (seconds: number): Promise<DiscoveredDevice[]> => {
+    const found = await discovery.scan(seconds, (p) => bus.emit('discover', { ...p, found: annotate(p.found) }))
+    lastScan = found
+    return annotate(found)
+  }
 
   // ------------------------------------------------------------ plumbing
 
@@ -133,7 +153,54 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   app.get('/api/families', async () => familyDescriptors())
   app.get('/api/discover', async (req) => {
     const q = z.object({ seconds: z.coerce.number().min(1).max(15).optional() }).parse(req.query)
-    return discovery.scan(q.seconds ?? 4)
+    return runScan(q.seconds ?? 8)
+  })
+  /** "I know its address": what is there? */
+  app.post('/api/detect', async (req) => {
+    const body = z.object({ host: z.string().min(1).max(253) }).parse(req.body)
+    // Accept "192.168.1.50", "192.168.1.50:8080" or a pasted "http://192.168.1.50/": keep the address and any port.
+    let text = body.host.trim()
+    const scheme = text.indexOf('://')
+    if (scheme >= 0) text = text.slice(scheme + 3)
+    text = text.split('/')[0] ?? ''
+    const [host = '', portText] = text.split(':')
+    const port = portText ? Number(portText) : undefined
+    if (!/^[A-Za-z0-9.-]+$/.test(host) || (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535))) {
+      throw new ValidationError('That does not look like an address. Use something like 192.168.1.50')
+    }
+    const found = annotate(await discovery.detect(host, port))
+    if (found.length === 0) throw new ActionError(`Nothing the hub recognises answered at ${host}. Check the address, and that the device is switched on and on this network.`, 404)
+    return found
+  })
+
+  // ---------------------------------------------------- Smart Life account
+
+  app.get('/api/tuya/account', async () => tuya.status())
+  app.post('/api/tuya/account', async (req) => {
+    const body = z.object({ accessId: z.string(), accessSecret: z.string(), region: z.string().optional(), apiBase: z.string().optional() }).parse(req.body)
+    return tuya.link(body)
+  })
+  app.delete('/api/tuya/account', async () => {
+    tuya.unlink()
+    return tuya.status()
+  })
+  app.get('/api/tuya/devices', async (req) => {
+    const q = z.object({ deviceId: z.string().optional() }).parse(req.query)
+    // The account list needs one device the hub has heard itself; listen briefly if no scan has run yet.
+    if (!lastScan.some((d) => d.via === 'tuya')) {
+      const { tuyaScan } = await import('./discovery.ts')
+      const heard = await tuyaScan(7, log)
+      lastScan = [...lastScan.filter((d) => d.via !== 'tuya'), ...heard]
+    }
+    return tuya.devices(lastScan, q.deviceId)
+  })
+  app.post('/api/tuya/import', async (req, reply) => {
+    const body = z
+      .object({ devices: z.array(z.object({ id: z.string(), kind: z.enum(DEVICE_KINDS as [string, ...string[]]).optional(), name: z.string().optional(), room: z.string().optional() })).min(1) })
+      .parse(req.body)
+    const added = tuya.importDevices(body.devices as Parameters<TuyaAccount['importDevices']>[0], lastScan)
+    reply.code(201)
+    return added
   })
 
   // ------------------------------------------------------------- devices

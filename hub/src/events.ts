@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { Action, Device, DeviceState, EventLevel, EventRecord, HubStatus, WifiNetwork } from '@house/shared'
+import type { Action, Device, DeviceState, DiscoverProgress, EventLevel, EventRecord, HubStatus, WifiNetwork } from '@house/shared'
 import { nowIso, parseJson, type DB } from './db.ts'
 import { newId } from './ids.ts'
 
@@ -11,6 +11,7 @@ export interface BusEvents {
   action: Action
   'wifi.networks': WifiNetwork[]
   'hub.status': HubStatus
+  discover: DiscoverProgress
 }
 
 /** Typed in-process event bus. The WebSocket layer relays these to the app. */

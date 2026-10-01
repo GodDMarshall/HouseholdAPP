@@ -8,6 +8,7 @@ import { navigate, useRoute, type Route } from './router.ts'
 import { ActivityScreen } from './screens/Activity.tsx'
 import { DeviceScreen } from './screens/Device.tsx'
 import { DeviceForm } from './screens/DeviceForm.tsx'
+import { EasyAdd } from './screens/EasyAdd.tsx'
 import { HomeScreen } from './screens/Home.tsx'
 import { LoginScreen } from './screens/Login.tsx'
 import { SettingsScreen } from './screens/Settings.tsx'
@@ -135,7 +136,8 @@ function Screen({ route }: { route: Route }) {
     case 'home': return <HomeScreen />
     case 'device': return <DeviceScreen key={route.id} id={route.id} />
     case 'edit': return <DeviceForm key={route.id} id={route.id} />
-    case 'add': return <DeviceForm />
+    case 'add': return <EasyAdd />
+    case 'manual': return <DeviceForm />
     case 'wifi': return <WifiScreen />
     case 'activity': return <ActivityScreen />
     case 'settings': return <SettingsScreen />

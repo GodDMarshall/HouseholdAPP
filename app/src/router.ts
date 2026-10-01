@@ -5,6 +5,7 @@ export type Route =
   | { name: 'device'; id: string }
   | { name: 'edit'; id: string }
   | { name: 'add' }
+  | { name: 'manual' }
   | { name: 'wifi' }
   | { name: 'activity' }
   | { name: 'settings' }
@@ -16,7 +17,7 @@ export function parseRoute(pathname: string): Route {
     if (parts[2] === 'edit') return { name: 'edit', id: parts[1] }
     return { name: 'device', id: parts[1] }
   }
-  if (parts[0] === 'add') return { name: 'add' }
+  if (parts[0] === 'add') return parts[1] === 'manual' ? { name: 'manual' } : { name: 'add' }
   if (parts[0] === 'wifi') return { name: 'wifi' }
   if (parts[0] === 'activity') return { name: 'activity' }
   if (parts[0] === 'settings') return { name: 'settings' }
@@ -54,6 +55,8 @@ export function pushStep(step: number): void {
 
 /** Leave a stepped screen cleanly: drop its step entries before moving on. */
 export function popSteps(n: number): Promise<void> {
+  // Never step back further than this app has pushed.
+  n = Math.min(n, depth)
   if (n <= 0) return Promise.resolve()
   return new Promise((resolve) => {
     const done = () => {

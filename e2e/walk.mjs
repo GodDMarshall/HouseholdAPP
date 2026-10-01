@@ -8,6 +8,7 @@
 // (set CHROME_PATH if it is somewhere unusual) and a built app (npm run build).
 import puppeteer from 'puppeteer-core'
 import { spawn } from 'node:child_process'
+import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -68,6 +69,33 @@ if (!process.argv[2]) {
     await new Promise((r) => setTimeout(r, 300))
   }
 }
+
+// A stand-in Tasmota switch on this machine, for the "I know its address" check.
+const tasmota = { on: false, commands: [] }
+const tasmotaServer = http.createServer((req, res) => {
+  const u = new URL(req.url, 'http://x')
+  const cmnd = u.searchParams.get('cmnd') ?? ''
+  tasmota.commands.push(cmnd)
+  const sts = () => ({ POWER: tasmota.on ? 'ON' : 'OFF', Wifi: { AP: 1, SSId: 'Home WiFi', RSSI: 74, Signal: -63 } })
+  let body
+  if (u.pathname !== '/cm') {
+    res.writeHead(404)
+    return res.end('no')
+  }
+  if (/^status 0$/i.test(cmnd)) body = { Status: { DeviceName: 'Veranda switch', FriendlyName: ['Veranda'], Power: tasmota.on ? 1 : 0 }, StatusFWR: { Version: '14.2.0(tasmota)' }, StatusNET: { Hostname: 'tasmota-1', IPAddress: '127.0.0.1', Mac: 'AA:BB:CC:11:22:33' }, StatusSTS: sts() }
+  else if (/^status/i.test(cmnd)) body = { StatusSTS: sts() }
+  else if (/^power/i.test(cmnd)) {
+    const arg = cmnd.split(' ')[1]?.toUpperCase()
+    if (arg === 'ON' || arg === '1') tasmota.on = true
+    else if (arg === 'OFF' || arg === '0') tasmota.on = false
+    else if (arg === 'TOGGLE' || arg === '2') tasmota.on = !tasmota.on
+    body = { POWER: tasmota.on ? 'ON' : 'OFF' }
+  } else body = { Command: 'Unknown' }
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(body))
+})
+await new Promise((r) => tasmotaServer.listen(0, '127.0.0.1', r))
+const TASMOTA_PORT = tasmotaServer.address().port
 
 const browser = await puppeteer.launch({
   executablePath: findBrowser(),
@@ -276,8 +304,49 @@ try {
   await clickText('button', 'Automatic')
   await sleep(1500)
 
+  // ---- 8b. easy add: the scan screen, then a device found by its address
+  await page.goto(BASE + '/add', { waitUntil: 'networkidle2' })
+  await sleep(1200)
+  check('Easy add opens on a live network scan', await page.evaluate(() => Boolean(document.querySelector('.radar.live')) && document.body.innerText.includes('Looking at your network')))
+  await shot('easy-add-scanning')
+  check('The scan finishes and says what it found', await waitText('Scan finished', 40000))
+  await shot('easy-add-done')
+  await clickText('button.row', 'Smart Life / Tuya account')
+  check('Smart Life link explains the one-time step', await waitText('How to get the two codes', 5000))
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  await clickText('button.row', 'I know its address')
+  await sleep(300)
+  await page.type('#a-host', 'not an address!')
+  await clickText('.sheet button.primary', 'Find out what it is')
+  check('A mistyped address gets a plain answer', await waitText('That does not look like an address', 5000))
+  await page.evaluate(() => {
+    const el = document.querySelector('#a-host')
+    el.select()
+  })
+  await page.keyboard.type(`127.0.0.1:${TASMOTA_PORT}`)
+  await clickText('.sheet button.primary', 'Find out what it is')
+  check('The hub recognises what is at a typed address', (await waitText('Add Tasmota', 10000)) && (await page.evaluate(() => document.querySelector('#q-name')?.value)) === 'Veranda switch')
+  await shot('easy-add-recognised')
+  await clickText('.sheet button', 'Light')
+  await clickText('.sheet button.primary', 'Add to my house')
+  check('One tap adds it and opens it', (await waitText('Veranda switch added', 10000)) && page.url().includes('/device/'))
+  await sleep(1500)
+  await clickText('button', 'Turn on')
+  check('The newly added real-family device obeys', (await waitText('now on', 8000)) && tasmota.on === true, tasmota.commands.slice(-3).join(' , '))
+  await shot('easy-add-device')
+  await clickText('button', 'Edit device')
+  await sleep(500)
+  await clickText('button', 'Remove this device')
+  await sleep(300)
+  await clickText('.sheet button.danger', 'Remove')
+  await sleep(800)
+
   // ---- 9. add a device through the wizard
   await page.goto(BASE + '/add', { waitUntil: 'networkidle2' })
+  await sleep(600)
+  await clickText('button.row', 'Set it up by hand')
+  check('Setting up by hand is one tap from the scan', await waitText('Step 1 of 5', 5000))
   await sleep(500)
   await shot('add-1-kind')
   await clickText('.choice', 'Light')
@@ -414,6 +483,7 @@ const failed = results.filter((r) => !r.ok)
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
 console.log(`screenshots: ${shots}`)
 await browser.close()
+tasmotaServer.close()
 if (hub) {
   hub.kill()
   await new Promise((r) => setTimeout(r, 500))

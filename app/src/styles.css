@@ -306,3 +306,70 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 .snapgrid .shot { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 10px; background: #000; overflow: hidden; }
 
 .picon { width: 22px; height: 22px; color: var(--muted); flex: none; }
+
+/* ---------- easy add: the live network scan ---------- */
+
+.radar {
+  position: relative; width: 100%; max-width: 380px; aspect-ratio: 1; margin: 6px auto 0;
+  border-radius: 50%; overflow: visible;
+  background: radial-gradient(circle at 50% 50%, #10161c 0%, #0b0e13 62%, transparent 63%);
+}
+.radar svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.radar .ring { fill: none; stroke: rgba(94, 234, 212, 0.16); stroke-width: 0.3; }
+.radar .axis { stroke: rgba(94, 234, 212, 0.08); stroke-width: 0.25; }
+.radar .tick { stroke: rgba(94, 234, 212, 0.35); stroke-width: 0.35; }
+.radar .link { stroke: rgba(94, 234, 212, 0.55); stroke-width: 0.35; stroke-dasharray: 1.4 1.4; animation: flow 1.2s linear infinite; }
+.radar .link.known { stroke: rgba(152, 160, 179, 0.4); animation: none; }
+.radar.live .ring { animation: breathe 2.4s ease-in-out infinite; }
+.radar.live .ring:nth-of-type(3) { animation-delay: 0.3s; }
+.radar.live .ring:nth-of-type(4) { animation-delay: 0.6s; }
+.radar.live .ring:nth-of-type(5) { animation-delay: 0.9s; }
+.radar .sweep {
+  position: absolute; inset: 2%; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 0deg, rgba(94, 234, 212, 0) 0deg, rgba(94, 234, 212, 0) 290deg, rgba(94, 234, 212, 0.05) 320deg, rgba(94, 234, 212, 0.38) 359deg, rgba(94, 234, 212, 0) 360deg);
+  animation: sweep 2.6s linear infinite;
+}
+.radar .core {
+  position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--accent-ink); background: var(--accent); box-shadow: 0 0 24px rgba(94, 234, 212, 0.55);
+}
+.radar .core svg { position: static; width: 24px; height: 24px; }
+.radar .core span { position: absolute; inset: -2px; border-radius: 50%; border: 2px solid rgba(94, 234, 212, 0.6); }
+.radar.live .core span { animation: ping 1.8s ease-out infinite; }
+.radar .blip { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 2; animation: pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); min-width: 44px; min-height: 44px; justify-content: center; }
+.radar .blip .dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #0f1115; border: 2px solid var(--accent); color: var(--accent); box-shadow: 0 0 16px rgba(94, 234, 212, 0.6); }
+.radar .blip .dot svg { position: static; width: 18px; height: 18px; }
+.radar .blip.known .dot { border-color: var(--muted); color: var(--muted); box-shadow: none; }
+.radar .blip .tag { font-size: 11px; line-height: 1.2; font-weight: 650; color: var(--text); background: rgba(15, 17, 21, 0.85); border: 1px solid var(--line); border-radius: 8px; padding: 3px 7px; white-space: nowrap; text-align: center; }
+.radar .blip .tag em { display: block; font-style: normal; font-weight: 500; color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 10px; }
+.radar .hud { position: absolute; font-family: ui-monospace, Consolas, monospace; font-size: 10px; letter-spacing: 0.12em; color: rgba(94, 234, 212, 0.75); }
+.radar .hud.tl { left: 0; top: 2px; }
+.radar .hud.tr { right: 0; top: 2px; }
+.radar .hud.bl { left: 0; bottom: 2px; }
+.radar .hud.br { right: 0; bottom: 2px; }
+.radar.live .hud.br { color: var(--err); animation: blink 1.1s steps(2) infinite; }
+
+@keyframes sweep { to { transform: rotate(360deg); } }
+@keyframes breathe { 0%, 100% { stroke: rgba(94, 234, 212, 0.12); } 50% { stroke: rgba(94, 234, 212, 0.4); } }
+@keyframes ping { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes pop { from { transform: translate(-50%, -50%) scale(0.2); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+@keyframes flow { to { stroke-dashoffset: -2.8; } }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+.scanlog { margin: 14px 0 6px; min-height: 66px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--muted); text-align: center; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.scanlog div { opacity: 0.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scanlog div.now { opacity: 1; color: var(--text); white-space: normal; font-family: inherit; font-size: 14px; }
+.radar.live + .scanlog div.now::after { content: ''; display: inline-block; width: 7px; height: 14px; margin-left: 4px; vertical-align: -2px; background: var(--accent); animation: blink 0.9s steps(2) infinite; }
+
+.foundicon { width: 40px; height: 40px; border-radius: 12px; background: var(--card-2); display: grid; place-items: center; color: var(--accent); flex: none; }
+.foundicon svg { width: 21px; height: 21px; }
+.tuyarow { padding: 12px 0; border-top: 1px solid var(--line); }
+.tuyarow:first-of-type { border-top: 0; }
+.howto { background: var(--card); border-radius: 14px; padding: 12px 14px; margin: 4px 0 12px; font-size: 14px; }
+.howto summary { font-weight: 650; cursor: pointer; min-height: 32px; }
+.howto ol { margin: 8px 0 8px; padding-left: 20px; display: grid; gap: 8px; }
+.howto p { color: var(--muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .radar .sweep, .radar.live .ring, .radar.live .core span, .radar .link, .radar .blip, .radar.live .hud.br { animation: none; }
+}

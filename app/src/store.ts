@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Action, Device, DeviceState, EventRecord, FamilyDescriptor, HubStatus, ServerMessage, WifiNetwork } from '@house/shared'
+import type { Action, Device, DeviceState, DiscoverProgress, EventRecord, FamilyDescriptor, HubStatus, ServerMessage, WifiNetwork } from '@house/shared'
 
 export type AuthPhase = 'unknown' | 'setup' | 'login' | 'ready'
 
@@ -21,7 +21,10 @@ interface State {
   actions: Record<string, Action>
   events: EventRecord[]
   families: FamilyDescriptor[]
+  /** The network scan as it runs, pushed live by the hub. */
+  scan: DiscoverProgress | null
   toasts: Toast[]
+  setScan(scan: DiscoverProgress | null): void
   setAuth(phase: AuthPhase): void
   setConnected(v: boolean): void
   setFamilies(f: FamilyDescriptor[]): void
@@ -45,7 +48,9 @@ export const useStore = create<State>((set, get) => ({
   actions: {},
   events: [],
   families: [],
+  scan: null,
   toasts: [],
+  setScan: (scan) => set({ scan }),
 
   setAuth: (auth) => set({ auth }),
   setConnected: (connected) => set({ connected }),
@@ -99,6 +104,9 @@ export const useStore = create<State>((set, get) => ({
         break
       case 'hub.status':
         set({ status: msg.status })
+        break
+      case 'discover':
+        set({ scan: msg.progress })
         break
     }
   },

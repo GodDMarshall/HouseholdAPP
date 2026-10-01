@@ -10,3 +10,4 @@ app/dev-dist/
 Thumbs.db
 e2e/shots/
 backups/
+e2e/tmp/
