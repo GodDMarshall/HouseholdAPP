@@ -1,0 +1,122 @@
+{
+  "onvif": [
+    "Switch ONVIF on in the camera's own settings or app (many cameras ship with it off).",
+    "Create or note the ONVIF username and password on the camera; many brands use a separate ONVIF user. Use an administrator-level login if restart or WiFi change from the hub is wanted.",
+    "Find the camera's ONVIF port: usually 80, but some brands use 8000, 8080, 8899 or 2020 (manual or app says which).",
+    "Leave the ONVIF address path at /onvif/device_service unless the manual gives another.",
+    "Switch off 'Camera can turn and zoom' for a fixed camera.",
+    "Only switch on 'Let the hub change the camera's WiFi' if the camera is known to allow it; otherwise use the camera's own app for WiFi.",
+    "For the SIM connection: the SIM needs a public/static address or a port-forward/VPN that exposes both the ONVIF port and the video port (usually 554).",
+    "Keep the hub's clock on network time; the login depends on the clock difference between hub and camera."
+  ],
+  "hikvision": [
+    "Switch on ISAPI on the camera: its web page > System > System Service > tick 'Enable ISAPI' > apply > restart the camera.",
+    "Have the camera's own username and password (usually 'admin'), not the Hik-Connect app account. A few wrong tries lock the login for about 30 minutes.",
+    "Know the camera's IP address on each house WiFi, and the port if it is not 80 (443 with 'Use HTTPS').",
+    "In the camera's Security settings keep 'WEB Authentication' and 'RTSP Authentication' on digest (or digest/basic) with MD5, otherwise login or live view can fail.",
+    "Check the video (RTSP) port if it was changed from 554.",
+    "Turn on 'This camera can turn and zoom' for PTZ models; turn off 'This camera has WiFi' for cable-only or 4G-only models; turn on 'This camera has a SIM' for 4G models.",
+    "For a recorder (NVR), enter which camera number (channel) is wanted.",
+    "For a SIM connection: confirm the plan gives a public/static IP and enter that address. The state key simAddressPublic shows whether the current SIM address is public.",
+    "Before moving a camera to another WiFi, make sure that network's password is stored correctly in the hub. A wrong one can drop the camera off WiFi until it is recovered by cable or its own app."
+  ],
+  "dahua": [
+    "Know the camera's own login (often 'admin') and password. This is the camera's local account, not the CP Plus / Dahua phone-app account.",
+    "In the camera's own settings page, switch on 'CGI service' (System > Security > System Service). On newer firmware also set Authentication Mode to 'Compatible' with MD5 digest only; otherwise the camera answers 401/500.",
+    "Make sure RTSP is on, and note the RTSP port if it was changed from 554.",
+    "If the camera's settings page opens with https://, switch on 'Use HTTPS' (the hub then uses port 443 unless the connection has its own port).",
+    "For a camera behind a recorder (NVR/DVR), enter the camera's number on the recorder as 'Camera number'.",
+    "Switch on the matching toggles: 'This camera can turn or zoom', 'This camera has WiFi', 'This camera has its own SIM (4G)'. The hub cannot detect these itself.",
+    "If a PTZ camera does not move, enter 0 in 'Movement channel' (on a recorder: the camera number minus 1).",
+    "Reserve a fixed address for the camera in each router, and add a connection path for each house WiFi, so the hub can find it after a WiFi move.",
+    "For the SIM path: the SIM needs a public address or a VPN/tunnel; ordinary Indian SIMs block incoming connections. Enter the forwarded HTTP port on that path.",
+    "If live video is black in the phone browser, set the camera's stream encoding to H.264 instead of H.265."
+  ],
+  "tasmota": [
+    "Have the device running Tasmota and joined to the house WiFi, and note its IP address (ideally reserve it in the router).",
+    "If the device's web page asks for a login, enter that web password (username is always admin and can be left blank).",
+    "Enter the relay number (1 on a single switch).",
+    "For dimmers or colour bulbs, turn on 'Can be dimmed' / 'Can change colour'.",
+    "For a gate or garage door: wire a dry-contact relay across the motor's push-button terminals, choose 'A gate or garage door' under 'What it controls', and pick one button or separate open / close / stop relays with their numbers.",
+    "For a gate, type once in the device's Console: Backlog PowerOnState 0; SetOption114 1; SwitchMode1 1 (keeps the relay off after a power cut and stops the door sensor working the relay by itself).",
+    "If a door sensor is fitted: set it up in Tasmota as a Switch, enter its number, check the tile with the gate shut and flip 'Sensor reads ON when the gate is' if it shows the opposite, and set the travel time.",
+    "For WiFi scan, update Tasmota to 12.1 or newer."
+  ],
+  "shelly": [
+    "Join the Shelly to the house WiFi with the Shelly app or its own setup hotspot first, and note its IP address (or use the hub's scan).",
+    "If a password is set on the Shelly (its web page: Settings > Authentication / Restrict login), enter the same one here. First-generation models also need the username; newer ones always use 'admin'.",
+    "Know the output number: 0 for a single-relay Shelly, 1 for the second relay of a two-relay model.",
+    "For a dimmer, switch on 'This is a dimmer'.",
+    "For a gate: wire the relay's dry contacts across the gate board's push-button (step) terminal, in parallel with the wall button, and set the Shelly's power-on default to OFF so a power cut cannot press the button. Never feed mains through the gate board's signal terminals.",
+    "For separate OPEN / CLOSE (and STOP) inputs: use a multi-relay Shelly and enter which output goes to which terminal.",
+    "For open/closed status: wire a magnetic reed switch to the Shelly's SW input (or a Plus Add-On input, usually number 100), set that input's type to Switch and detached from the relay in the Shelly's settings, then enter the input number and whether 'closed' reads on or off.",
+    "Enter roughly how many seconds the gate takes to travel (default 20).",
+    "For WiFi moves with a fallback: store both house networks with their passwords in the hub and link the device's connection to the network it is on."
+  ],
+  "tuya-local": [
+    "Get the Device ID and 16-character local key once per device: free account at iot.tuya.com, cloud project in the India data centre, add IoT Core, Devices > Link Tuya App Account > scan with Smart Life, then run 'tuya-cli wizard' or 'python -m tinytuya wizard' (it also lists address and protocol version).",
+    "Enter the device's address on the WiFi path and reserve that address in the router so it does not change (port 6668 is the default).",
+    "Pick the protocol version the key list shows (3.3 for most; 3.4 / 3.5 for newer devices).",
+    "Close the Smart Life app on phones on the same WiFi when the hub reports the device is busy: the device allows only one local connection.",
+    "Fetch the local key again whenever a device is removed and re-paired in Smart Life.",
+    "Multi-button switch: add each button as its own device with 'On/off channel number' 1, 2, 3 and so on.",
+    "Dimmable device: turn on 'Can be dimmed'; older bulbs need the range set to 25-255 and brightness channel 3.",
+    "Gate or garage door: wire the relay across the motor's push-button input and choose button-press or hold mode; adjust the press length if 1 second does not suit the motor."
+  ],
+  "gsm-sms": [
+    "Put a working SIM in the box with its PIN lock switched off; most of these boxes are 2G only, so use Airtel, Vi or BSNL rather than Jio.",
+    "Enter the phone number of the SIM inside the box on the device's SMS connection.",
+    "Pick the box type by matching the example texts in the box's leaflet (boxes sold as 'RTU5024' come in two different dialects).",
+    "If the box password was ever changed, enter it (otherwise the factory one is used: 1234, 5678 on *71* boxes, 123456 on WAFER; *71* boxes also have a programming password, factory 1234).",
+    "Store your own mobile number in the box once by text from your phone: RTU5024 1234TEL00919XXXXXXXXX# (box's own number) then 1234A001#919XXXXXXXXX#; 1234#ON# boxes 1234#TEL00919XXXXXXXXX#001# (64-number box 1234#TEL919XXXXXXXXX#01#); *71* boxes *12*1234#74919XXXXXXXXX# then *12*1234#7191#7219XXXXXXXXX#; WAFER #PWD123456#WHL001=<number>.",
+    "Say how the box is wired to the gate: pressing the gate's button (default) or holding the gate open while switched on.",
+    "RTU5024: set the press length once (1234GOT000# for a gate button, 1234GOT999# to stay on for a switch).",
+    "Decide whether to open with a free phone call (switch on 'Open with a free phone call'); the calling phone's number must be stored in the box.",
+    "For a Custom box, type each text from the leaflet with {pwd} where the password goes."
+  ],
+  "tuya-cloud": [
+    "On iot.tuya.com: create a cloud project (type Smart Home) in the India data centre and add the free IoT Core service to it.",
+    "In the project open Devices > Link Tuya App Account and scan the code with the Smart Life app (the project's data centre must match the Smart Life account's region; one account can be linked to at most two projects).",
+    "Copy the Access ID and Access Secret from the project's Overview page, and each device's Device ID from the project's Devices list.",
+    "Renew the IoT Core trial about once a month (Tuya takes 1-2 working days to approve); when it lapses this connection stops working.",
+    "Add the device with a single 'cloud' connection; the address can be left empty.",
+    "For a gate: choose whether it is a Tuya garage door opener or a plain switch wired to the gate's push-button, and for the latter set the press length (default 1 s).",
+    "For lights: turn off 'can be dimmed' for on/off-only lights and turn on 'can change colour' for colour bulbs."
+  ],
+  "mqtt": [
+    "Have an MQTT broker running that both the hub and the device can reach (Mosquitto on the hub PC for house WiFi devices; a broker on the internet for a relay on its own SIM, since the relay must dial out).",
+    "For Mosquitto 2: add 'listener 1883' and a password file (or 'allow_anonymous true') to its settings and allow port 1883 in Windows Firewall, otherwise it refuses every other machine.",
+    "Point the device at the broker in the device's own settings (broker address, port, username, password, and its topic name).",
+    "Look up the device's topics and words: command topic, state topic, availability topic and its online/offline words (Tasmota: cmnd/<name>/POWER, stat/<name>/POWER or stat/<name>/RESULT with item POWER, tele/<name>/LWT with Online/Offline).",
+    "Enter the broker's address as the connection address (not the device's), with the broker's username and password if it has a login.",
+    "For a broker on the internet: turn on the secure connection, use port 8883, and only tick 'Accept a self-made certificate' for your own broker with a self-signed certificate.",
+    "For a dimmable light: fill in the brightness topic and the number the device uses for full brightness (100 Tasmota, 254 Zigbee2MQTT).",
+    "For a gate with a single step button: clear the open, close and stop messages and fill in only the pulse message (for a Tasmota relay: ON, with PulseTime set on the relay)."
+  ],
+  "http-relay": [
+    "Find the board's on, off and (if any) toggle, pulse, status and restart addresses in its manual or on its own web page.",
+    "Give the device a fixed IP address on each house WiFi and enter it on each connection path, with the port if it is not 80.",
+    "If the device asks for a login, enter the username and password; use {user} and {pass} in the address for devices that want them in the link (e.g. Tasmota), so the password stays in the encrypted field.",
+    "For on/off display, enter the status address and what it reads when on (e.g. POWER=ON or relays.0.ison=true).",
+    "For a gate: choose one-button or separate open/close/stop wiring and wire the relay's dry contact in parallel with the gate board's push-button input.",
+    "For a gate: prefer the device's own timed pulse (Shelly timer=1 / toggle_after=1, Tasmota PulseTime) over the hub-timed press, and set the relay's power-on state to off.",
+    "For open/closed display: fit a reed sensor at the closed position and enter its status address and the 'closed' reading (e.g. state=true).",
+    "Set the gate travel time in seconds if it is far from 30.",
+    "For the SIM path: confirm the SIM has a public address and forward a port to the device."
+  ],
+  "tapo": [
+    "In the Tapo app, open the camera, tap the gear icon, then Advanced Settings > Camera Account, and make a username and password (6 to 32 characters each; plain letters and digits work best). Enter that login in the hub, not the TP-Link email and password.",
+    "In the Tapo app, switch on Me > Third-Party Compatibility. If the hub later cannot log in, switch it off and on again and open the camera once in the Tapo app.",
+    "Find the camera's address on each house WiFi (router device list or the Tapo app's device info) and enter it on the matching connection. A fixed/reserved address in the router is advisable.",
+    "Leave Control port at 2020 and Video port at 554 unless they were changed.",
+    "Switch off 'Camera can turn' for a fixed model.",
+    "Optional: fill in the TP-Link account password only if the normal video address gives nothing. It must be typed correctly, because repeated wrong tries make the camera refuse all logins for a while, including the Tapo app's.",
+    "Keep other viewers (recorder, other apps) to two at most: a Tapo allows three local video connections and the hub uses one.",
+    "Do not run SD-card recording and Tapo Care together; that switches RTSP/ONVIF access off in the camera.",
+    "A 4G model must be on a network cable for the hub to reach it."
+  ],
+  "rtsp": [
+    "Find the camera's RTSP video address in its manual or app, and switch RTSP on if it is off.",
+    "Note the username and password the camera asks for."
+  ]
+}

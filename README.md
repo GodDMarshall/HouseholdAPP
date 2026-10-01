@@ -61,14 +61,20 @@ npm start
 | Dahua / CP Plus camera | Dahua and CP Plus cameras |
 | TP-Link Tapo camera | Tapo C-series |
 | Camera by stream address | Anything with an RTSP address (EZVIZ, ICSee and others) |
-| Tasmota switch | Sonoff and other ESP switches running Tasmota; lights, sockets, gate relays |
-| Shelly relay | Shelly relays and dimmers; lights, sockets, gate relays |
-| Tuya (cloud) | Tuya / Smart Life devices through the Tuya cloud, from anywhere |
-| Tuya (local) | Tuya / Smart Life devices on the house network |
+| Tasmota switch or relay | Sonoff and other ESP switches running Tasmota: lights, sockets, gate relays |
+| Shelly relay or dimmer | Shelly relays and dimmers: lights, sockets, gate relays |
+| Tuya / Smart Life (over the internet) | Tuya devices through the Tuya cloud, from anywhere |
+| Tuya / Smart Life (inside the house) | Tuya devices on the house network |
 | MQTT device | Anything that talks to an MQTT broker |
-| HTTP relay | Relay boards with plain on / off / pulse addresses |
+| Relay with web addresses (HTTP) | Relay boards with plain on / off / pulse addresses |
 | GSM gate box (SMS) | Gate openers controlled by text message or a call |
 | Illustrative device | A pretend camera, gate or light for trying the app |
+
+Every family was written from the makers' documents (see `docs/protocols/`) and
+tested against a stand-in device. None has been run against real hardware yet:
+the first real device of each kind is the real test. What to look up before
+adding each one is in [docs/ADD-YOUR-DEVICES.md](docs/ADD-YOUR-DEVICES.md)
+(regenerate it with `npm run guide` after changing an adapter).
 
 ## Settings
 
@@ -81,12 +87,14 @@ Environment variables, all optional:
 | `HC_SMS_PORT` | none | Serial port of a USB GSM modem (`COM3`). Without one, texts are handed to your phone to send. |
 | `HC_PROBE_INTERVAL_SEC` | `15` | How often each device's connection is checked |
 | `HC_SEED_VIRTUAL` | on | Set to `0` to start with an empty house |
+| `HC_GO2RTC_URL` | none | Use a go2rtc that is already running instead of starting one |
 | `HC_LOG_LEVEL` | `info` | `debug` shows every device call |
 
 ## Checks
 
 ```powershell
-npm test            # hub: registry, sign-in, failover, actions, every adapter against a mock device
+npm test            # hub: registry, sign-in, failover, actions, every adapter against a stand-in device
+npm run test:e2e    # the app in a real browser at phone size, on a throwaway hub
 npm run typecheck
 ```
 

@@ -75,6 +75,8 @@ const NEEDS: Partial<Record<ActionType, Capability[]>> = {
 const NOTIFY_DONE = new Set<ActionType>(['gate.open', 'gate.close', 'gate.stop', 'gate.pulse', 'wifi.set', 'reboot', 'path.switch', 'sms.send', 'custom'])
 
 const SNAPSHOTS_KEPT = 300
+/** How long a text may take to leave through a GSM modem before the action is given up on. */
+const SMS_SEND_MS = 75_000
 
 /**
  * Every command goes through here: it is stored, run over the device's live
@@ -272,8 +274,10 @@ export class ActionQueue {
     const first = await this.liveContext(device)
     let live = first.path
     let result: ActionResult
+    // A GSM modem can take a minute to hand a text to the network; anything else answers in seconds.
+    const budget = (p: ConnectionPath) => (p.kind === 'sms' ? SMS_SEND_MS : this.deps.config.deviceTimeoutMs * 2)
     try {
-      result = await withTimeout(adapter.execute(first.ctx, action), this.deps.config.deviceTimeoutMs * 2, action.label)
+      result = await withTimeout(adapter.execute(first.ctx, action), budget(live), action.label)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const alternatives = device.paths.filter((x) => x.enabled && x.id !== live.id)
@@ -285,7 +289,7 @@ export class ActionQueue {
       live = next
       const ctx = devices.context(devices.unmasked(device.id), live)
       try {
-        result = await withTimeout(adapter.execute(ctx, action), this.deps.config.deviceTimeoutMs * 2, action.label)
+        result = await withTimeout(adapter.execute(ctx, action), budget(live), action.label)
       } catch (err2) {
         return { result: { ok: false, error: err2 instanceof Error ? err2.message : String(err2) }, pathId: live.id }
       }

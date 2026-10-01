@@ -21,7 +21,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup.ps1",
     "reset-pin": "node --no-warnings scripts/reset-pin.mjs",
-    "test:e2e": "node e2e/walk.mjs"
+    "test:e2e": "node e2e/walk.mjs",
+    "guide": "node --no-warnings --import tsx scripts/device-guide.ts"
   },
   "devDependencies": {
     "puppeteer-core": "^25.12.0"
