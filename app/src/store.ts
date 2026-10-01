@@ -117,9 +117,17 @@ function announce(get: () => State, action: Action, prev: Action | undefined): v
   if (prev && prev.status === action.status) return
   const device = get().devices.find((d) => d.id === action.deviceId)
   const name = device?.name ?? 'Device'
-  const quiet = action.type === 'ptz.move' || action.type === 'ptz.stop' || action.type === 'probe'
+  const quiet = action.type === 'ptz.move' || action.type === 'ptz.stop'
   if (action.status === 'done') {
     if (quiet) return
+    if (action.result?.superseded === true) return // the later command reports
+    if (action.type === 'probe') {
+      // "Check now" must answer too, not only when something is wrong.
+      const r = action.result ?? {}
+      const text = typeof r.summary === 'string' ? r.summary : r.unverifiable === true ? 'ready (texts cannot be checked)' : typeof r.latencyMs === 'number' ? `answering in ${r.latencyMs} ms` : 'answering'
+      get().toast(`${name}: ${text}`, 'ok', { actionId: action.id, deviceId: action.deviceId })
+      return
+    }
     get().toast(`${name}: ${action.label} — ${resultText(action)}`, 'ok', { actionId: action.id, deviceId: action.deviceId })
   } else if (action.status === 'failed') {
     get().toast(`${name}: ${action.label} failed — ${action.error ?? 'no reason given'}`, 'error', { actionId: action.id, deviceId: action.deviceId })
@@ -130,6 +138,9 @@ function announce(get: () => State, action: Action, prev: Action | undefined): v
 
 export function resultText(a: Action): string {
   const r = a.result ?? {}
+  // What the device adapter said actually happened beats any generic "done".
+  if (typeof r.note === 'string' && r.note) return r.note
+  if (r.via === 'sms') return a.type === 'sms.send' ? 'text sent' : 'text sent; the device cannot report back'
   if (typeof r.gate === 'string') {
     return r.gate === 'open' ? 'gate is open' : r.gate === 'closed' ? 'gate is closed' : r.gate === 'stopped' ? 'gate stopped' : 'gate moved'
   }

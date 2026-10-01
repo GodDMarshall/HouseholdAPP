@@ -17,7 +17,9 @@ const CODECS = ['avc1.640029', 'avc1.64002A', 'avc1.640033', 'hvc1.1.6.L153.B0',
 export function Viewer({ device, state, stillsMs = 700 }: { device: Device; state: DeviceState | undefined; stillsMs?: number }) {
   const [info, setInfo] = useState<StreamInfo | null>(null)
   const [liveFailed, setLiveFailed] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
   const online = state?.online === true
+  const canStream = device.capabilities.includes('stream')
 
   useEffect(() => {
     let cancelled = false
@@ -29,7 +31,26 @@ export function Viewer({ device, state, stillsMs = 700 }: { device: Device; stat
     return () => {
       cancelled = true
     }
-  }, [device.id, state?.activePathId, online, device.capabilities])
+  }, [device.id, state?.activePathId, online, device.capabilities, retry])
+
+  // Live video can lag the device coming online by a moment (the hub registers
+  // the stream just after), and it can drop. While this screen is open and the
+  // camera could be live but is not, keep asking instead of settling for stills.
+  useEffect(() => {
+    if (!online || !info || !canStream) return
+    if (info.available && !liveFailed) return
+    if (info.go2rtc === 'missing') return
+    const bump = () => setRetry((n) => n + 1)
+    const t = window.setTimeout(bump, info.available ? 15000 : Math.min(30000, 2500 * (1 + retry)))
+    const onVis = () => document.visibilityState === 'visible' && bump()
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearTimeout(t)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+    // `retry` is read for the back-off only; `info` changes on every attempt and re-arms the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, info, liveFailed, canStream])
 
   if (!online) {
     return (

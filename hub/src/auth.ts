@@ -12,7 +12,8 @@ export class AuthError extends Error {
 
 /**
  * One PIN for the house. The first phone to open the app sets it. Every login
- * gets a long-lived token (the phone keeps it); wrong PINs are throttled.
+ * gets a long-lived token (the phone keeps it); wrong PINs are throttled, on
+ * the sign-in screen and on "change PIN" alike.
  */
 export class Auth {
   private failures = 0
@@ -34,27 +35,19 @@ export class Auth {
   login(pin: string, label = ''): string {
     const stored = getSetting(this.db, 'pin_hash')
     if (!stored) throw new AuthError('No PIN set yet', 409)
-    const now = Date.now()
-    if (now < this.lockedUntil) {
-      throw new AuthError(`Too many wrong PINs. Try again in ${Math.ceil((this.lockedUntil - now) / 1000)} s`, 429)
-    }
-    if (!verifyPin(pin, stored)) {
-      this.failures += 1
-      if (this.failures >= 5) {
-        this.lockedUntil = now + Math.min(15 * 60_000, 30_000 * 2 ** (this.failures - 5))
-      }
-      throw new AuthError('Wrong PIN', 401)
-    }
-    this.failures = 0
-    this.lockedUntil = 0
+    this.checkPin(pin, stored, 'Wrong PIN')
     return this.issue(label)
   }
 
-  changePin(current: string, next: string): void {
+  /** Changing the PIN signs every other phone out; pass the caller's token to keep it signed in. */
+  changePin(current: string, next: string, keepToken?: string | null): void {
     const stored = getSetting(this.db, 'pin_hash')
-    if (!stored || !verifyPin(current, stored)) throw new AuthError('Current PIN is wrong', 401)
+    if (!stored) throw new AuthError('No PIN set yet', 409)
+    this.checkPin(current, stored, 'Current PIN is wrong')
     validatePin(next)
     setSetting(this.db, 'pin_hash', hashPin(next))
+    if (keepToken) this.db.prepare('DELETE FROM sessions WHERE token_hash <> ?').run(sha256(keepToken))
+    else this.db.prepare('DELETE FROM sessions').run()
   }
 
   verify(token: string | undefined | null): boolean {
@@ -78,6 +71,23 @@ export class Auth {
     return rows.map((r) => ({ label: r.label ?? '', createdAt: r.created_at!, lastUsedAt: r.last_used_at! }))
   }
 
+  /** One throttle for every place a PIN is typed, so none of them is a way round it. */
+  private checkPin(pin: string, stored: string, wrongMessage: string): void {
+    const now = Date.now()
+    if (now < this.lockedUntil) {
+      throw new AuthError(`Too many wrong PINs. Try again in ${Math.ceil((this.lockedUntil - now) / 1000)} s`, 429)
+    }
+    if (!verifyPin(pin, stored)) {
+      this.failures += 1
+      if (this.failures >= 5) {
+        this.lockedUntil = now + Math.min(15 * 60_000, 30_000 * 2 ** (this.failures - 5))
+      }
+      throw new AuthError(wrongMessage, 401)
+    }
+    this.failures = 0
+    this.lockedUntil = 0
+  }
+
   private issue(label: string): string {
     const token = randomToken(32)
     const ts = nowIso()
@@ -86,6 +96,7 @@ export class Auth {
   }
 }
 
+/** The sign-in keypad has digits only, so the PIN must be something it can type. */
 function validatePin(pin: string): void {
-  if (typeof pin !== 'string' || pin.length < 4 || pin.length > 32) throw new AuthError('The PIN must be 4 to 32 characters', 400)
+  if (typeof pin !== 'string' || !/^\d{4,8}$/.test(pin)) throw new AuthError('The PIN must be 4 to 8 digits', 400)
 }

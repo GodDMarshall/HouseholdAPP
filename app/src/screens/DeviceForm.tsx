@@ -15,7 +15,7 @@ import {
 import { api, ApiError } from '../api.ts'
 import { Icon, kindIcon, pathIcon } from '../components/icons.tsx'
 import { FieldInput, Sheet, Switch, TopBar } from '../components/ui.tsx'
-import { navigate } from '../router.ts'
+import { back, navigate, popSteps, pushStep } from '../router.ts'
 import { useStore } from '../store.ts'
 
 interface Draft {
@@ -97,6 +97,22 @@ export function DeviceForm({ id }: { id?: string }) {
     }
   }, [editing, existing, loaded])
 
+  // Each wizard step is a history entry: the phone's Back button goes one step
+  // back and keeps everything typed, instead of throwing the form away.
+  const goTo = (n: number) => {
+    pushStep(n)
+    setStep(n)
+  }
+  useEffect(() => {
+    if (editing) return
+    const onPop = (e: PopStateEvent) => {
+      const st = (e.state as { hcStep?: number } | null)?.hcStep
+      setStep(typeof st === 'number' ? st : 0)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [editing])
+
   const family = families.find((f) => f.id === draft.family)
   const usable = useMemo(() => families.filter((f) => f.kinds.includes(draft.kind)), [families, draft.kind])
   const rooms = useMemo(() => [...new Set(devices.map((d) => d.room).filter(Boolean))], [devices])
@@ -160,6 +176,8 @@ export function DeviceForm({ id }: { id?: string }) {
     try {
       const saved = editing ? await api.put<Device>(`/api/devices/${id}`, body()) : await api.post<Device>('/api/devices', body())
       toast(`${saved.name} saved`, 'ok')
+      // Fold the wizard's own steps away so Back from the new device goes home, not into an empty form.
+      if (!editing) await popSteps(step)
       navigate(`/device/${saved.id}`, true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save')
@@ -181,7 +199,7 @@ export function DeviceForm({ id }: { id?: string }) {
   if (editing && !loaded) {
     return (
       <>
-        <TopBar title="Edit device" onBack={() => navigate(id ? `/device/${id}` : '/')} />
+        <TopBar title="Edit device" onBack={() => back(id ? `/device/${id}` : '/')} />
         <main className="content">
           <div className="empty">
             <div className="spinner" style={{ margin: '0 auto' }} />
@@ -241,7 +259,7 @@ export function DeviceForm({ id }: { id?: string }) {
                     if (!f) return
                     setDraft((prev) => ({ ...prev, kind: f.kinds.includes(prev.kind) ? prev.kind : d.kind }))
                     chooseFamily(f, d)
-                    if (!editing) setStep(2)
+                    if (!editing) goTo(2)
                   }}
                 >
                   <Icon name={kindIcon(d.kind)} className="picon" />
@@ -440,7 +458,7 @@ export function DeviceForm({ id }: { id?: string }) {
   if (editing) {
     return (
       <>
-        <TopBar title={`Edit ${existing?.name ?? 'device'}`} onBack={() => navigate(`/device/${id}`)} />
+        <TopBar title={`Edit ${existing?.name ?? 'device'}`} onBack={() => back(`/device/${id}`)} />
         <main className="content" style={{ paddingBottom: 40 }}>
           <div className="card">
             <h2>Details</h2>
@@ -479,7 +497,7 @@ export function DeviceForm({ id }: { id?: string }) {
   const canNext = step === 0 ? true : step === 1 ? Boolean(family) : step === 2 ? Boolean(draft.name.trim()) : step === 3 ? draft.paths.length > 0 : false
   return (
     <>
-      <TopBar title="Add a device" sub={`Step ${step + 1} of 5 · ${titles[step]}`} onBack={() => (step === 0 ? navigate('/') : setStep(step - 1))} />
+      <TopBar title="Add a device" sub={`Step ${step + 1} of 5 · ${titles[step]}`} onBack={() => (step === 0 ? back('/') : history.back())} />
       <main className="content" style={{ paddingBottom: 40 }}>
         <div className="steps">
           {titles.map((_, i) => (
@@ -488,7 +506,7 @@ export function DeviceForm({ id }: { id?: string }) {
         </div>
         {step === 0 ? kindSection : step === 1 ? familySection : step === 2 ? detailsSection : step === 3 ? pathsSection : testSection}
         {step < 4 ? (
-          <button className="btn primary block" style={{ marginTop: 18 }} disabled={!canNext} onClick={() => setStep(step + 1)}>
+          <button className="btn primary block" style={{ marginTop: 18 }} disabled={!canNext} onClick={() => goTo(step + 1)}>
             Next
             <Icon name="right" />
           </button>

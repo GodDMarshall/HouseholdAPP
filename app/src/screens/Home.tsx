@@ -4,7 +4,7 @@ import { Icon, kindIcon } from '../components/icons.tsx'
 import { ConnChip, Sheet, TopBar } from '../components/ui.tsx'
 import { Stills } from '../components/Viewer.tsx'
 import { api } from '../api.ts'
-import { act, isOn, stateLine, useBusy, usePending } from '../lib.ts'
+import { act, activePathOf, isOn, stateLine, useBusy, usePending } from '../lib.ts'
 import { navigate } from '../router.ts'
 import { useStore } from '../store.ts'
 
@@ -19,7 +19,7 @@ export function HomeScreen() {
   const removeIllustrative = async () => {
     for (const d of illustrative) await api.del(`/api/devices/${d.id}`).catch(() => undefined)
     setClearing(false)
-    useStore.getState().toast('Illustrative devices removed', 'info')
+    useStore.getState().toast('Illustrative devices and their pretend WiFi networks removed', 'info')
   }
 
   const rooms = useMemo(() => {
@@ -33,9 +33,14 @@ export function HomeScreen() {
   }, [devices])
 
   const offline = devices.filter((d) => states[d.id] && !states[d.id]!.online).length
-  const lightsOn = devices.filter((d) => d.capabilities.includes('power') && isOn(states[d.id]))
+  // Lights only: a socket or a pump is not something "all lights off" should touch.
+  const lightsOn = devices.filter((d) => d.kind === 'light' && d.capabilities.includes('power') && isOn(states[d.id]))
   const gates = devices.filter((d) => d.capabilities.includes('gate') && states[d.id]?.online)
-  const gatesToClose = gates.filter((d) => states[d.id]?.state.gate !== 'closed')
+  // Only gates that report their position are closed here. Pressing the button of
+  // a gate whose position is unknown could OPEN it (one-button gates step open / stop / close).
+  const knownGates = gates.filter((d) => d.capabilities.includes('gate-state') && activePathOf(d, states[d.id])?.kind !== 'sms')
+  const gatesToClose = knownGates.filter((d) => ['open', 'opening', 'stopped'].includes(String(states[d.id]?.state.gate)))
+  const gatesUnknown = gates.filter((d) => !knownGates.includes(d) || !['open', 'opening', 'stopped', 'closed', 'closing'].includes(String(states[d.id]?.state.gate)))
   const sub = devices.length === 0 ? 'No devices yet' : offline > 0 ? `${devices.length} devices · ${offline} unreachable` : `${devices.length} devices · all reachable`
 
   return (
@@ -108,9 +113,15 @@ export function HomeScreen() {
         {lockUp ? (
           <Sheet title="Lock up the house?" subtitle="One tap for the end of the day." onClose={() => setLockUp(false)}>
             <p className="note">
-              {gatesToClose.length > 0 ? `Closes ${gatesToClose.map((d) => d.name).join(', ')}.` : 'Every gate already reports closed.'}{' '}
+              {gatesToClose.length > 0 ? `Closes ${gatesToClose.map((d) => d.name).join(', ')}.` : knownGates.length > 0 ? 'Every gate that reports its position is closed.' : ''}{' '}
               {lightsOn.length > 0 ? `Turns off ${lightsOn.length} light${lightsOn.length === 1 ? '' : 's'}.` : 'No lights are on.'}
             </p>
+            {gatesUnknown.length > 0 ? (
+              <p className="note warn">
+                {gatesUnknown.map((d) => d.name).join(', ')} cannot tell the hub whether {gatesUnknown.length === 1 ? 'it is' : 'they are'} open or closed, so Lock up leaves {gatesUnknown.length === 1 ? 'it' : 'them'} alone. Check by eye or
+                camera and close {gatesUnknown.length === 1 ? 'it' : 'them'} from {gatesUnknown.length === 1 ? 'its' : 'their'} own page.
+              </p>
+            ) : null}
             <div className="btnrow">
               <button
                 className="btn primary"

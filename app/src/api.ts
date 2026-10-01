@@ -67,10 +67,3 @@ export const api = {
   put: <T>(url: string, body?: unknown) => call<T>('PUT', url, body ?? {}),
   del: <T>(url: string) => call<T>('DELETE', url),
 }
-
-/** URL for <img> / <video> elements that cannot send headers. */
-export function tokenUrl(path: string): string {
-  const t = getToken()
-  const sep = path.includes('?') ? '&' : '?'
-  return t ? `${path}${sep}token=${encodeURIComponent(t)}` : path
-}

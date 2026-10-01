@@ -7,6 +7,11 @@ import { navigate } from '../router.ts'
 import { useStore } from '../store.ts'
 import { disconnectLive } from '../ws.ts'
 
+/** The sign-in keypad has digits only; never let a PIN be set that it cannot type. */
+function digits(s: string): string {
+  return s.replace(/[^0-9]/g, '').slice(0, 8)
+}
+
 function uptime(sec: number): string {
   if (sec < 90) return `${sec} s`
   const m = Math.round(sec / 60)
@@ -52,7 +57,7 @@ export function SettingsScreen() {
     setPinError(null)
     try {
       await api.post('/api/auth/pin', { current, next })
-      toast('PIN changed', 'ok')
+      toast('PIN changed. Other phones were signed out.', 'ok')
       setPinSheet(false)
       setCurrent('')
       setNext('')
@@ -146,17 +151,18 @@ export function SettingsScreen() {
         </div>
 
         {pinSheet ? (
-          <Sheet title="Change the house PIN" subtitle="Every phone keeps working; the new PIN is asked the next time someone signs in." onClose={() => setPinSheet(false)}>
+          <Sheet title="Change the house PIN" subtitle="This phone stays signed in. Every other phone is signed out and asks for the new PIN." onClose={() => setPinSheet(false)}>
             <div className="field">
               <label htmlFor="p-cur">Current PIN</label>
-              <input id="p-cur" className="input" type="password" inputMode="numeric" value={current} onChange={(e) => setCurrent(e.target.value)} />
+              <input id="p-cur" className="input" type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={current} onChange={(e) => setCurrent(digits(e.target.value))} />
             </div>
             <div className="field">
               <label htmlFor="p-new">New PIN (4 to 8 digits)</label>
-              <input id="p-new" className="input" type="password" inputMode="numeric" value={next} onChange={(e) => setNext(e.target.value)} />
+              <input id="p-new" className="input" type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={next} onChange={(e) => setNext(digits(e.target.value))} />
+              <div className="help">Digits only, so the sign-in keypad can type it.</div>
             </div>
             {pinError ? <p className="note err">{pinError}</p> : null}
-            <button className="btn primary block" disabled={current.length < 4 || next.length < 4} onClick={() => void changePin()}>
+            <button className="btn primary block" disabled={current.length < 4 || next.length < 4 || next.length > 8} onClick={() => void changePin()}>
               Change PIN
             </button>
           </Sheet>

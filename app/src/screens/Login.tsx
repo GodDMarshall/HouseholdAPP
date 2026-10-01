@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError, setToken } from '../api.ts'
 import { Logo } from '../App.tsx'
+import { useStore } from '../store.ts'
 
 const MAX = 8
 
@@ -38,6 +39,14 @@ export function LoginScreen({ mode, onDone }: { mode: 'setup' | 'login'; onDone:
       setToken(res.token)
       onDone()
     } catch (err) {
+      if (mode === 'setup' && err instanceof ApiError && err.status === 409) {
+        // Another phone set the PIN a moment ago: this one now signs in with it.
+        setFirst(null)
+        setPin('')
+        setError('A PIN was just set on another phone. Enter that PIN.')
+        useStore.getState().setAuth('login')
+        return
+      }
       fail(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {
       setBusy(false)

@@ -158,7 +158,8 @@ describe('sign-in', () => {
     const a = t.hub.auth
     a.setup('2468')
     expect(() => a.changePin('0000', '9999')).toThrow(/Current PIN is wrong/)
-    expect(() => a.changePin('2468', '12')).toThrow(/4 to 32/)
+    expect(() => a.changePin('2468', '12')).toThrow(/4 to 8 digits/)
+    expect(() => a.changePin('2468', 'abcd')).toThrow(/4 to 8 digits/)
     a.changePin('2468', '1357')
     expect(() => a.login('2468')).toThrow()
     expect(a.verify(a.login('1357'))).toBe(true)

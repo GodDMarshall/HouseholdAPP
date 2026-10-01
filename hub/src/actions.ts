@@ -74,7 +74,6 @@ const NEEDS: Partial<Record<ActionType, Capability[]>> = {
 /** Actions whose completion the owner wants to hear about on the phone. Failures always notify. */
 const NOTIFY_DONE = new Set<ActionType>(['gate.open', 'gate.close', 'gate.stop', 'gate.pulse', 'wifi.set', 'reboot', 'path.switch', 'sms.send', 'custom'])
 
-const GATE_SETTLE_MS = 90_000
 const SNAPSHOTS_KEPT = 300
 
 /**
@@ -85,6 +84,8 @@ const SNAPSHOTS_KEPT = 300
  */
 export class ActionQueue {
   private chains = new Map<string, Promise<unknown>>()
+  /** The newest gate command per device, so an older one knows it was overtaken. */
+  private latestGate = new Map<string, string>()
   private readonly log: Logger
   private readonly snapshotDir: string
 
@@ -123,8 +124,19 @@ export class ActionQueue {
     }
     this.insert(action)
     this.deps.bus.emit('action', action)
+    if (isGateMove(req.type)) this.latestGate.set(deviceId, action.id)
+    // One command at a time per device, in the order asked. The slot is released
+    // as soon as a command has been DELIVERED: a gate that is still travelling
+    // must not hold back the Stop (or Close) tapped after it.
     const prev = this.chains.get(deviceId) ?? Promise.resolve()
-    const next = prev.then(() => this.run(action)).catch((err) => this.log.error(`action ${action.id} crashed`, err))
+    const next = prev.then(
+      () =>
+        new Promise<void>((release) => {
+          void this.run(action, release)
+            .catch((err) => this.log.error(`action ${action.id} crashed`, err))
+            .finally(release)
+        }),
+    )
     this.chains.set(deviceId, next)
     return action
   }
@@ -176,14 +188,14 @@ export class ActionQueue {
 
   // ---------------------------------------------------------------- running
 
-  private async run(action: Action): Promise<void> {
+  private async run(action: Action, release: () => void): Promise<void> {
     const running: Action = { ...action, status: 'running', startedAt: nowIso() }
     this.update(running)
     this.deps.bus.emit('action', running)
     let outcome: ActionResult
     let pathId: string | null = null
     try {
-      const r = await this.perform(running)
+      const r = await this.perform(running, release)
       outcome = r.result
       pathId = r.pathId
     } catch (err) {
@@ -203,7 +215,7 @@ export class ActionQueue {
     this.announce(finished)
   }
 
-  private async perform(action: Action): Promise<{ result: ActionResult; pathId: string | null }> {
+  private async perform(action: Action, release: () => void): Promise<{ result: ActionResult; pathId: string | null }> {
     const { devices } = this.deps
     const device = this.deps.registry.getDevice(action.deviceId)
     if (!device) return { result: { ok: false, error: 'Device was removed' }, pathId: null }
@@ -249,12 +261,12 @@ export class ActionQueue {
         return { result: { ok: true, result: { url: `/api/snapshots/${action.id}`, bytes: snap.body.length } }, pathId: got.pathId }
       }
       default:
-        return this.executeWithFailover(device, action)
+        return this.executeWithFailover(device, action, release)
     }
   }
 
   /** Run an adapter action on the live path; on a transport failure, fail over once and retry. */
-  private async executeWithFailover(device: Device, action: Action): Promise<{ result: ActionResult; pathId: string | null }> {
+  private async executeWithFailover(device: Device, action: Action, release: () => void): Promise<{ result: ActionResult; pathId: string | null }> {
     const { devices } = this.deps
     const adapter = devices.adapterFor(device)
     const first = await this.liveContext(device)
@@ -287,18 +299,39 @@ export class ActionQueue {
       if (Object.keys(echo).length) result = { ...result, result: { ...echo, ...(result.result ?? {}) } }
     }
     if (result.ok && !result.needsConfirmation && isGateMove(action.type) && device.capabilities.includes('gate-state') && live.kind !== 'sms') {
-      const final = await this.settleGate(device, action.type)
-      result = { ...result, result: { ...(result.result ?? {}), gate: final } }
+      // Delivered. Let the next command through (Stop!) while we watch the gate.
+      release()
+      const final = await this.settleGate(device, action)
+      const superseded = this.latestGate.get(device.id) !== action.id
+      result = { ...result, result: { ...(result.result ?? {}), gate: final, ...(superseded ? { superseded: true } : {}) } }
+      const goal = action.type === 'gate.open' ? 'open' : action.type === 'gate.close' ? 'closed' : null
+      if (goal && final !== goal && !superseded && (final === 'open' || final === 'closed' || final === 'stopped')) {
+        // A definite reading that is not what was asked for: say so, do not call it done.
+        result = {
+          ...result,
+          ok: false,
+          error: final === 'stopped' ? `The gate stopped before it was fully ${goal}` : `The gate did not ${goal === 'closed' ? 'close' : 'open'}. It still reads ${final}.`,
+        }
+      }
     }
     return { result, pathId: live.id }
   }
 
-  /** Wait for the gate to finish moving so "done" means done. */
-  private async settleGate(device: Device, type: ActionType): Promise<GateState> {
-    const goal: GateState | null = type === 'gate.open' ? 'open' : type === 'gate.close' ? 'closed' : type === 'gate.stop' ? 'stopped' : null
+  /**
+   * Watch the gate until it reaches what was asked for, so "done" means done.
+   * A reading that contradicts the goal is normal at first (a closing gate reads
+   * "open" until it is shut), so it only counts once the gate has clearly had
+   * time to move, or after it was seen moving.
+   */
+  private async settleGate(device: Device, action: Action): Promise<GateState> {
+    const type = action.type
+    const goal: GateState | null = type === 'gate.open' ? 'open' : type === 'gate.close' ? 'closed' : null
     const started = Date.now()
     let last: GateState = 'unknown'
-    while (Date.now() - started < GATE_SETTLE_MS) {
+    let sawMoving = false
+    const settleMs = this.deps.config.gateSettleSec * 1000
+    const noMoveMs = this.deps.config.gateNoMoveSec * 1000
+    while (Date.now() - started < settleMs) {
       await sleep(1000)
       try {
         const state = await this.deps.devices.refreshState(device.id)
@@ -306,11 +339,22 @@ export class ActionQueue {
       } catch {
         continue
       }
-      if (last === 'open' || last === 'closed' || last === 'stopped') {
-        if (!goal || last === goal || type === 'gate.pulse') return last
-        if (goal === 'stopped') return last
-        return last
+      const elapsed = Date.now() - started
+      const moving = last === 'opening' || last === 'closing'
+      if (moving) sawMoving = true
+      const terminal = last === 'open' || last === 'closed' || last === 'stopped'
+      if (!terminal) continue
+      if (last === 'stopped') return last
+      if (goal) {
+        if (last === goal) return last
+        // A later command took over (Stop, or Close after Open): this one will never reach its goal.
+        if (this.latestGate.get(device.id) !== action.id) return last
+        // It moved and came to rest somewhere else, or it never moved at all.
+        if (sawMoving || elapsed >= noMoveMs) return last
+        continue
       }
+      // Stop / pulse have no target position: report where the gate came to rest.
+      if (type === 'gate.stop' || sawMoving || elapsed >= 5000) return last
     }
     return last
   }
@@ -338,7 +382,8 @@ export class ActionQueue {
       if (action.type !== 'snapshot' && chatty) return
       this.deps.events.record({ deviceId: action.deviceId, type: 'action.done', message: `${name}: ${action.label} — ${body}`, data: { actionId: action.id } })
       const push = level === 'everything' ? !chatty : level === 'important' && NOTIFY_DONE.has(action.type)
-      if (push) {
+      // A command overtaken by a later one is not news; the later one reports.
+      if (push && action.result?.superseded !== true) {
         void this.deps.notifier.send({ title: `${name}: ${action.label}`, body, tag: `action:${action.deviceId}:${action.type}`, url: `/device/${action.deviceId}`, deviceId: action.deviceId })
       }
     } else if (action.status === 'failed') {
@@ -416,7 +461,18 @@ function isGateMove(type: ActionType): boolean {
 
 function describeResult(a: Action): string {
   const r = a.result ?? {}
-  if (a.status === 'needs-confirmation') return r.handoff ? 'Send the text from your phone, then confirm in the app.' : 'Could not be confirmed automatically.'
+  // An adapter's own note is the most truthful account of what happened; it wins.
+  const note = typeof r.note === 'string' && r.note ? r.note : null
+  if (a.status === 'needs-confirmation') {
+    if (note) return note
+    if (typeof r.handoff === 'string') {
+      return r.handoff.startsWith('tel:') ? 'Call the device from your phone, then confirm in the app.' : 'Send the text from your phone, then confirm in the app.'
+    }
+    return 'Could not be confirmed automatically.'
+  }
+  if (r.superseded === true) return 'Changed by a later command'
+  if (note) return note
+  if (r.via === 'sms') return a.type === 'sms.send' ? 'Text sent' : 'Text sent. The device cannot report back.'
   if (typeof r.gate === 'string') {
     switch (r.gate) {
       case 'open': return 'Gate is open'

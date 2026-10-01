@@ -137,6 +137,8 @@ const adapter: Adapter = {
         { name: 'startSsid', label: 'Starts on WiFi', type: 'text', help: 'Leave blank to start on the first path’s network.' },
         { name: 'simReachable', label: 'SIM has a public IP', type: 'toggle', default: false, help: 'Off = the carrier blocks inbound connections, like a normal consumer SIM.' },
         { name: 'failRate', label: 'Flakiness (%)', type: 'number', default: 0, help: 'Chance that any check fails, to try the failover.' },
+        { name: 'jammed', label: 'Gate is jammed', type: 'toggle', default: false, help: 'The gate takes commands but does not move, to see how a gate that fails is reported.', showWhen: { field: 'simulate', equals: 'gate' } },
+        { name: 'joinFails', label: 'Fails to join a new WiFi', type: 'toggle', default: false, help: 'When moved to another network it restarts and comes back on the old one, like a device given a wrong password.' },
       ],
       pathKinds: ['lan', 'cellular', 'sms', 'cloud'],
       defaultPort: 80,
@@ -233,6 +235,7 @@ const adapter: Adapter = {
         let goal = target
         if (action.type === 'gate.pulse') goal = r.gate === 'open' || r.gate === 'opening' ? 'closed' : 'open'
         if (r.gate === goal) return { ok: true, state: { gate: r.gate }, result: { alreadyThere: true } }
+        if (ctx.bool('jammed', false)) return { ok: true, state: { gate: r.gate } } // command taken, nothing moves
         r.gate = goal === 'open' ? 'opening' : 'closing'
         r.gateTimer = setTimeout(() => {
           r.gate = goal!
@@ -285,7 +288,10 @@ const adapter: Adapter = {
         return { ok: true, result: { backInSeconds: REBOOT_MS / 1000 } }
       }
       case 'sms.send': {
-        const out = await ctx.sms(ctx.path.host ?? '', String(p.text ?? ''))
+        // Texts go to the SIM in the device, whichever connection is in use right now.
+        const number = ctx.path.kind === 'sms' ? ctx.path.host : ctx.device.paths.find((x) => x.kind === 'sms' && x.enabled)?.host
+        if (!number) return { ok: false, error: 'This device has no SMS connection with a phone number' }
+        const out = await ctx.sms(number, String(p.text ?? ''))
         return out.sent ? { ok: true } : { ok: true, needsConfirmation: true, result: { handoff: out.handoff } }
       }
       case 'custom':
@@ -309,8 +315,9 @@ const adapter: Adapter = {
     if (!target.ssid) return { ok: false, error: 'No network name given' }
     if (!target.password) return { ok: false, error: `No password stored for "${target.ssid}"` }
     r.offlineUntil = Date.now() + WIFI_MOVE_MS
-    r.ssid = target.ssid
-    return { ok: true, result: { ssid: target.ssid }, state: { wifi: target.ssid } }
+    if (!ctx.bool('joinFails', false)) r.ssid = target.ssid
+    // What the device was told, not proof that it joined: the hub checks where it reappears.
+    return { ok: true, result: { ssid: target.ssid } }
   },
 
   async scanWifi(ctx): Promise<WifiScanEntry[]> {

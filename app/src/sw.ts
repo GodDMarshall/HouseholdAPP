@@ -1,16 +1,18 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
-import { NetworkFirst } from 'workbox-strategies'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> }
 
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 
-// App shell: serve index.html for navigations, from the network when we can.
+// Every page of the app (deep links included) opens from the stored app shell,
+// so a reload or a notification tap with the hub unreachable shows the app's own
+// "Cannot reach the hub" screen, never the browser's error page. Nothing from
+// /api, /video or /ws is ever cached.
 registerRoute(
-  new NavigationRoute(new NetworkFirst({ cacheName: 'shell', networkTimeoutSeconds: 3 }), {
+  new NavigationRoute(createHandlerBoundToURL('index.html'), {
     denylist: [/^\/api\//, /^\/video\//, /^\/ws/],
   }),
 )

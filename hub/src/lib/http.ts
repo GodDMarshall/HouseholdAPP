@@ -20,8 +20,13 @@ export interface RequestOptions {
   timeoutMs?: number
   /** Basic auth. */
   basic?: { username: string; password: string }
-  /** Digest auth (Hikvision, Dahua, ONVIF over HTTP, Shelly Gen2). Falls back to basic if the server asks for it. */
-  digest?: { username: string; password: string }
+  /**
+   * Digest auth (Hikvision, Dahua, ONVIF over HTTP, Shelly Gen2). The password
+   * is only ever sent as a nonce-bound hash. If the device answers with a Basic
+   * challenge instead, the password is sent in clear ONLY over https or when the
+   * caller sets allowBasic (a trusted house network, an old device).
+   */
+  digest?: { username: string; password: string; allowBasic?: boolean }
   /** Accept self-signed certificates (Tapo, Hikvision HTTPS). */
   insecure?: boolean
 }
@@ -45,11 +50,13 @@ export function request(url: string, opts: RequestOptions = {}): Promise<Respons
   return rawRequest(u, opts, headers).then(async (res) => {
     if (res.status === 401 && opts.digest) {
       const challenge = res.headers['www-authenticate'] ?? ''
-      if (/^digest/i.test(challenge)) {
-        headers.Authorization = digestHeader(challenge, opts.method ?? 'GET', u.pathname + u.search, opts.digest.username, opts.digest.password)
+      // Devices may offer several schemes in one header; pick the Digest one wherever it sits.
+      const digest = /(?:^|,\s*)(digest\s[\s\S]*?)(?=,\s*(?:basic|bearer|negotiate|ntlm)\b|$)/i.exec(challenge)
+      if (digest) {
+        headers.Authorization = digestHeader(digest[1]!, opts.method ?? 'GET', u.pathname + u.search, opts.digest.username, opts.digest.password)
         return rawRequest(u, opts, headers)
       }
-      if (/^basic/i.test(challenge)) {
+      if (/(?:^|,\s*)basic\b/i.test(challenge) && (u.protocol === 'https:' || opts.digest.allowBasic)) {
         headers.Authorization = basicHeader(opts.digest.username, opts.digest.password)
         return rawRequest(u, opts, headers)
       }

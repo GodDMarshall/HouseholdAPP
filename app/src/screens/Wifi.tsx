@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SECRET_MASK, type WifiNetwork } from '@house/shared'
 import { api, ApiError } from '../api.ts'
 import { Icon } from '../components/icons.tsx'
-import { Sheet, TopBar } from '../components/ui.tsx'
+import { Sheet, TopBar, nextSecretValue } from '../components/ui.tsx'
 import { useStore } from '../store.ts'
 
 interface Edit {
@@ -21,6 +21,7 @@ export function WifiScreen() {
   const [edit, setEdit] = useState<Edit | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   const onNetwork = (w: WifiNetwork) =>
     devices.filter((d) => {
@@ -65,7 +66,7 @@ export function WifiScreen() {
         title="WiFi networks"
         sub="The networks of the house"
         right={
-          <button className="iconbtn" onClick={() => setEdit({ id: null, ssid: '', password: '', notes: '' })} aria-label="Add WiFi network">
+          <button className="iconbtn" onClick={() => (setConfirmRemove(false), setEdit({ id: null, ssid: '', password: '', notes: '' }))} aria-label="Add WiFi network">
             <Icon name="plus" />
           </button>
         }
@@ -82,7 +83,7 @@ export function WifiScreen() {
             {wifi.map((w) => {
               const here = onNetwork(w)
               return (
-                <button key={w.id} className="row" onClick={() => setEdit({ id: w.id, ssid: w.ssid, password: w.hasPassword ? SECRET_MASK : '', notes: w.notes })}>
+                <button key={w.id} className="row" onClick={() => (setConfirmRemove(false), setEdit({ id: w.id, ssid: w.ssid, password: w.hasPassword ? SECRET_MASK : '', notes: w.notes }))}>
                   <Icon name="wifi" className="picon" />
                   <span className="grow">
                     <span className="title" style={{ display: 'block' }}>
@@ -113,27 +114,44 @@ export function WifiScreen() {
                 type="password"
                 value={edit.password}
                 autoComplete="off"
-                placeholder={edit.password === SECRET_MASK ? 'Saved — type to change' : ''}
-                onFocus={() => edit.password === SECRET_MASK && setEdit({ ...edit, password: '' })}
-                onChange={(e) => setEdit({ ...edit, password: e.target.value })}
+                onFocus={(e) => edit.password === SECRET_MASK && e.target.select()}
+                onChange={(e) => setEdit({ ...edit, password: nextSecretValue(edit.password, e.target.value) })}
               />
-              <div className="help">Kept encrypted on the hub. Needed to move a device onto this network.</div>
+              <div className="help">
+                {edit.password === SECRET_MASK ? 'Saved. Type a new one to change it; leave it alone to keep it. ' : ''}Kept encrypted on the hub. Needed to move a device onto this network.
+              </div>
             </div>
             <div className="field">
               <label htmlFor="w-notes">Note (optional)</label>
               <input id="w-notes" className="input" value={edit.notes} placeholder="Main router, 4G router in the hall" onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
             </div>
             {error ? <p className="note err">{error}</p> : null}
-            <div className="btnrow">
-              <button className="btn primary" disabled={busy || !edit.ssid.trim()} onClick={() => void save()}>
-                Save
-              </button>
-              {edit.id ? (
-                <button className="btn danger" disabled={busy} onClick={() => void remove()}>
-                  Remove
+            {confirmRemove ? (
+              <>
+                <p className="note warn">
+                  Remove {edit.ssid} and its stored password? Devices keep their connections, but they can no longer be moved onto this network from the app.
+                </p>
+                <div className="btnrow">
+                  <button className="btn danger" disabled={busy} onClick={() => void remove()}>
+                    Yes, remove it
+                  </button>
+                  <button className="btn ghost" onClick={() => setConfirmRemove(false)}>
+                    Keep it
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button className="btn primary block" disabled={busy || !edit.ssid.trim()} onClick={() => void save()}>
+                  Save
                 </button>
-              ) : null}
-            </div>
+                {edit.id ? (
+                  <button className="btn ghost block" style={{ marginTop: 18, color: 'var(--err)' }} disabled={busy} onClick={() => setConfirmRemove(true)}>
+                    Remove this network
+                  </button>
+                ) : null}
+              </>
+            )}
           </Sheet>
         ) : null}
       </main>

@@ -21,6 +21,8 @@ interface Runtime {
   tick: number
   checking: Promise<DeviceState> | null
   unsubscribe: (() => void) | null
+  /** Bumped on every (re)subscribe, removal and shutdown, so a late subscribe knows it was superseded. */
+  subGen: number
 }
 
 export interface DeviceManagerDeps {
@@ -63,7 +65,11 @@ export class DeviceManager {
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
-    for (const r of this.runtimes.values()) r.unsubscribe?.()
+    for (const r of this.runtimes.values()) {
+      r.subGen++
+      r.unsubscribe?.()
+      r.unsubscribe = null
+    }
   }
 
   private load(device: Device): Runtime {
@@ -79,6 +85,7 @@ export class DeviceManager {
       tick: 0,
       checking: null,
       unsubscribe: null,
+      subGen: 0,
     }
     if (runtime.activePathId && !device.paths.some((p) => p.id === runtime.activePathId)) runtime.activePathId = null
     if (runtime.pinnedPathId && !device.paths.some((p) => p.id === runtime.pinnedPathId)) runtime.pinnedPathId = null
@@ -91,7 +98,7 @@ export class DeviceManager {
     const existing = this.runtimes.get(device.id)
     if (!existing) {
       this.load(device)
-      void this.check(device.id, { force: true })
+      this.checkQuietly(device.id)
       return
     }
     // Keep health for paths that still exist, add blanks for new ones.
@@ -102,16 +109,26 @@ export class DeviceManager {
     if (existing.pinnedPathId && !health.has(existing.pinnedPathId)) existing.pinnedPathId = null
     void this.resubscribe(device, existing)
     this.broadcast(device.id)
-    void this.check(device.id, { force: true })
+    this.checkQuietly(device.id)
   }
 
   private onDeviceRemoved(id: string): void {
     const r = this.runtimes.get(id)
-    r?.unsubscribe?.()
+    if (r) {
+      r.subGen++ // a subscribe still in flight must not attach to a removed device
+      r.unsubscribe?.()
+      r.unsubscribe = null
+    }
     this.runtimes.delete(id)
   }
 
+  /** A background check whose device may vanish mid-flight must never take the hub down. */
+  private checkQuietly(deviceId: string): void {
+    this.check(deviceId, { force: true }).catch((err) => this.log.debug(`check of ${deviceId} ended early`, err instanceof Error ? err.message : err))
+  }
+
   private async resubscribe(device: Device, runtime: Runtime): Promise<void> {
+    const gen = ++runtime.subGen
     runtime.unsubscribe?.()
     runtime.unsubscribe = null
     const adapter = this.adapterFor(device)
@@ -120,10 +137,13 @@ export class DeviceManager {
     if (!path) return
     try {
       const unmasked = this.unmasked(device.id)
-      runtime.unsubscribe = await adapter.subscribe(this.context(unmasked, path), (state) => {
+      const off = await adapter.subscribe(this.context(unmasked, path), (state) => {
+        if (runtime.subGen !== gen) return // superseded or removed: ignore late reports
         this.mergeState(device.id, state)
         runtime.lastSeenAt = nowIso()
       })
+      if (runtime.subGen !== gen) off()
+      else runtime.unsubscribe = off
     } catch (err) {
       this.log.warn(`${device.name}: subscribe failed`, err instanceof Error ? err.message : err)
     }
@@ -275,9 +295,11 @@ export class DeviceManager {
     if (chosen && chosen.id !== previousId) {
       const prev = device.paths.find((p) => p.id === previousId)
       const better = prev ? chosen.priority < prev.priority : false
+      // Leaving a working, better connection for a lower one only happens when the owner pinned it.
+      const byChoice = Boolean(prev) && !better && r.health.get(prev!.id)?.status === 'up'
       this.deps.events.record({
         deviceId: device.id,
-        level: prev && !better ? 'warn' : 'info',
+        level: prev && !better && !byChoice ? 'warn' : 'info',
         type: prev ? (better ? 'path.restored' : 'path.switched') : 'path.up',
         message: prev
           ? better
@@ -286,7 +308,7 @@ export class DeviceManager {
           : `${device.name} reachable on ${chosen.label}`,
         data: { pathId: chosen.id, previousPathId: previousId },
       })
-      if (prev && r.online !== null && (device.notify === 'everything' || device.notify === 'important')) {
+      if (prev && !byChoice && r.online !== null && (device.notify === 'everything' || device.notify === 'important')) {
         void this.deps.notifier.send({
           title: better ? `${device.name} back on ${chosen.label}` : `${device.name} now on ${chosen.label}`,
           body: better ? 'The better connection is working again.' : `${prev.label} stopped answering, so the hub switched over.`,
@@ -466,6 +488,7 @@ export class DeviceManager {
   }
 
   private persist(r: Runtime): void {
+    if (!this.runtimes.has(r.deviceId)) return // removed while a check was in flight
     this.deps.db
       .prepare(
         `INSERT INTO device_runtime (device_id, active_path_id, pinned_path_id, state, last_seen_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)

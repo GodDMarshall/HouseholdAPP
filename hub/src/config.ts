@@ -37,6 +37,14 @@ export const config = {
   failbackEveryTicks: int(process.env.HC_FAILBACK_EVERY, 4),
   /** Per-request timeout when talking to a device. */
   deviceTimeoutMs: int(process.env.HC_DEVICE_TIMEOUT_MS, 6000),
+  /** A gate that still reads the opposite of what was asked after this long has not moved. */
+  gateNoMoveSec: int(process.env.HC_GATE_NO_MOVE_SEC, 45),
+  /** How long to wait for a gate to finish travelling before giving up on its final position. */
+  gateSettleSec: int(process.env.HC_GATE_SETTLE_SEC, 90),
+  /** How long a device gets to reappear on its new WiFi. */
+  wifiMoveWaitSec: int(process.env.HC_WIFI_MOVE_WAIT_SEC, 90),
+  /** A device still answering on its old network this long after being told to move has not moved. */
+  wifiStillOldSec: int(process.env.HC_WIFI_STILL_OLD_SEC, 40),
   logLevel: (process.env.HC_LOG_LEVEL ?? 'info') as 'debug' | 'info' | 'warn' | 'error',
   /** Add the illustrative virtual devices when the registry is empty. */
   seedVirtual: process.env.HC_SEED_VIRTUAL !== '0',

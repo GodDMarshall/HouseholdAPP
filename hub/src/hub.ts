@@ -8,7 +8,7 @@ import { registerApi } from './api.ts'
 import { Auth } from './auth.ts'
 import { VERSION, type Config } from './config.ts'
 import { SecretBox } from './crypto.ts'
-import { openDb, type DB } from './db.ts'
+import { getSetting, openDb, setSetting, type DB } from './db.ts'
 import { DeviceManager } from './devices.ts'
 import { Discovery } from './discovery.ts'
 import { Bus, EventLog } from './events.ts'
@@ -47,7 +47,11 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
   const bus = new Bus()
   const events = new EventLog(db, bus)
   const registry = new Registry(db, box, bus)
-  if (config.seedVirtual) seedIfEmpty(registry, log)
+  // Seed once per data folder: a house the owner has emptied stays empty after a restart.
+  if (config.seedVirtual && getSetting(db, 'seeded') === null) {
+    seedIfEmpty(registry, log)
+    setSetting(db, 'seeded', '1')
+  }
 
   const sms = new SmsTransport(config.smsPort, log)
   const notifier = new Notifier(db, config.dataDir, log)

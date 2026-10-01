@@ -81,7 +81,8 @@ const adapter: Adapter = {
     const user = ctx.str('username')
     const res = await request(url, {
       timeoutMs: ctx.timeoutMs,
-      digest: user ? { username: user, password: ctx.secret('password') ?? '' } : undefined,
+      // Older cameras only do Basic; allow that on the house network, never over the public SIM path.
+      digest: user ? { username: user, password: ctx.secret('password') ?? '', allowBasic: ctx.path.kind !== 'cellular' } : undefined,
       insecure: true,
     })
     if (res.status === 401) throw new Error('The camera refused the username or password')

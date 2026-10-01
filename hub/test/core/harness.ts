@@ -37,6 +37,10 @@ export async function makeHub(overrides: Partial<Config> = {}): Promise<TestHub>
     probeIntervalSec: 3600,
     failbackEveryTicks: 2,
     deviceTimeoutMs: 1500,
+    gateNoMoveSec: 3,
+    gateSettleSec: 20,
+    wifiMoveWaitSec: 24,
+    wifiStillOldSec: 5,
     smsPort: null,
     go2rtcBin: path.join(dir, 'no-go2rtc'),
     appDist: path.join(dir, 'no-dist'),
@@ -54,8 +58,9 @@ export async function makeHub(overrides: Partial<Config> = {}): Promise<TestHub>
     pushes.push({ title: p.title, body: p.body })
     return { sent: 1, failed: 0 }
   }
-  const home = hub.registry.createWifi({ ssid: 'Home WiFi', password: 'home-pass' }).id
-  const backup = hub.registry.createWifi({ ssid: 'Backup WiFi', password: 'backup-pass' }).id
+  // With the starter set seeded, its two networks are already there.
+  const home = (hub.registry.findWifiBySsid('Home WiFi') ?? hub.registry.createWifi({ ssid: 'Home WiFi', password: 'home-pass' })).id
+  const backup = (hub.registry.findWifiBySsid('Backup WiFi') ?? hub.registry.createWifi({ ssid: 'Backup WiFi', password: 'backup-pass' })).id
   let token: string | null = null
 
   return {

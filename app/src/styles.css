@@ -302,6 +302,7 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 .kv dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 
 .snapgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.snapgrid img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: #000; }
+.snapgrid img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: #000; display: block; }
+.snapgrid .shot { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 10px; background: #000; overflow: hidden; }
 
 .picon { width: 22px; height: 22px; color: var(--muted); flex: none; }

@@ -139,14 +139,30 @@ export function FieldInput({ spec, value, onChange }: { spec: FieldSpec; value: 
           autoCapitalize="off"
           spellCheck={false}
           value={String(value ?? '')}
-          placeholder={spec.secret && value === SECRET_MASK ? 'Saved — type to change' : spec.placeholder}
+          placeholder={spec.placeholder}
           onFocus={(e) => {
-            if (spec.secret && e.target.value === SECRET_MASK) onChange('')
+            // Select the saved dots so typing replaces them. Looking at the field changes nothing.
+            if (spec.secret && e.target.value === SECRET_MASK) e.target.select()
           }}
-          onChange={(e) => onChange(spec.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)}
+          onChange={(e) =>
+            onChange(spec.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : spec.secret ? nextSecretValue(String(value ?? ''), e.target.value) : e.target.value)
+          }
         />
       )}
+      {spec.secret && value === SECRET_MASK ? <div className="help">Saved. Type a new one to change it; leave it alone to keep it.</div> : null}
       {spec.help ? <div className="help">{spec.help}</div> : null}
     </div>
   )
+}
+
+/**
+ * Editing a saved secret that the app only knows as dots. Typing replaces the
+ * dots with what was typed; nibbling at the dots keeps the saved value; only
+ * emptying the field clears it.
+ */
+export function nextSecretValue(previous: string, typed: string): string {
+  if (previous !== SECRET_MASK) return typed
+  if (typed === '') return ''
+  const real = typed.split('•').join('')
+  return real === '' ? SECRET_MASK : real
 }

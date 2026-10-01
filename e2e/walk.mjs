@@ -192,6 +192,19 @@ try {
   await shot('gate-open')
   await clickText('.gatebtns button', 'Close')
   check('Gate closes', await waitText('gate is closed', 15000))
+  await sleep(4000) // let the toasts clear
+  await clickText('.gatebtns button', 'Open')
+  await sleep(1800)
+  const tStop = Date.now()
+  await clickText('.gatebtns button', 'Stop')
+  check('Stop halts a gate that is still opening, at once', (await waitText('gate stopped', 4000)) && Date.now() - tStop < 4000, `${Date.now() - tStop} ms`)
+  check('The overtaken Open is not reported as failed', !(await text()).includes('failed'))
+  await shot('gate-stopped')
+  await clickText('.gatebtns button', 'Close')
+  await waitText('gate is closed', 15000)
+  await sleep(4000)
+  await clickText('button', 'Check now')
+  check('Check now answers when all is well', await waitText('Main gate: On Home WiFi', 6000))
 
   // ---- 5. camera: picture, PTZ, snapshot
   await openDevice('Gate camera')
@@ -279,6 +292,11 @@ try {
   await shot('add-3-details')
   await clickText('button.primary', 'Next')
   await sleep(300)
+  await page.goBack() // the phone's own Back button
+  await sleep(400)
+  check('Phone Back steps back in the wizard and keeps what was typed', (await text()).includes('Step 3 of 5') && (await page.evaluate(() => document.querySelector('#f-name')?.value)) === 'Kitchen light')
+  await clickText('button.primary', 'Next')
+  await sleep(300)
   await page.evaluate(() => {
     const el = document.querySelector('.pathcard input.input')
     el.focus()
@@ -294,6 +312,10 @@ try {
   check('New device saved and opened', await waitText('Kitchen light', 6000) && page.url().includes('/device/'))
   await sleep(1200)
   await shot('new-device')
+  await clickText('button', 'Back')
+  await sleep(500)
+  check('Back from the new device goes to the house', await page.evaluate(() => location.pathname === '/'))
+  await openDevice('Kitchen light')
 
   // ---- 10. edit + delete it
   await clickText('button', 'Edit device')
@@ -319,7 +341,25 @@ try {
   await clickText('button.row', 'Guest WiFi')
   await sleep(300)
   check('Stored password is masked, never sent back', await page.evaluate(() => document.querySelector('#w-pass').value === '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'))
-  await clickText('.sheet button.danger', 'Remove')
+  await page.click('#w-pass') // just looking at the field
+  await page.click('#w-notes')
+  await page.type('#w-notes', 'for visitors')
+  await clickText('.sheet button.primary', 'Save')
+  await waitText('Guest WiFi saved', 5000)
+  const kept = await page.evaluate(async () => {
+    const t = localStorage.getItem('hc.token')
+    const list = await (await fetch('/api/wifi', { headers: { Authorization: 'Bearer ' + t } })).json()
+    const w = list.find((x) => x.ssid === 'Guest WiFi')
+    return w ? { hasPassword: w.hasPassword, notes: w.notes } : null
+  })
+  check('Looking at a saved password does not erase it', kept && kept.hasPassword === true && kept.notes === 'for visitors', JSON.stringify(kept))
+  await sleep(4000)
+  await clickText('button.row', 'Guest WiFi')
+  await sleep(300)
+  await clickText('.sheet button', 'Remove this network')
+  await sleep(200)
+  check('Removing a network asks first', (await text()).includes('Remove Guest WiFi and its stored password?'))
+  await clickText('.sheet button.danger', 'Yes, remove it')
   check('WiFi network removed', await waitText('Guest WiFi removed', 5000))
 
   // ---- 12. activity + settings
@@ -350,6 +390,11 @@ try {
   await sleep(300)
   await clickText('.sheet button.danger', 'Remove them')
   check('House is empty and offers to add a device', await waitText('Nothing here yet', 8000))
+  const wifiLeft = await page.evaluate(async () => {
+    const t = localStorage.getItem('hc.token')
+    return (await (await fetch('/api/wifi', { headers: { Authorization: 'Bearer ' + t } })).json()).length
+  })
+  check('The pretend WiFi networks went with them', wifiLeft === 0, `${wifiLeft} left`)
   await sleep(500)
   await shot('home-empty')
   const reg = await page.evaluate(async () => {

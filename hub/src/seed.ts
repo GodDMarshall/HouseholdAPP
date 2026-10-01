@@ -6,10 +6,13 @@ import type { Registry } from './registry.ts'
  * devices so the app has something to show before the real hardware is added.
  * Nothing here is a real device; delete them from the app when you like.
  */
+/** The pretend networks carry this password prefix; that is how the hub knows one has not been made real. */
+export const SEED_WIFI_PASSWORD_PREFIX = 'illustrative-'
+
 export function seedIfEmpty(registry: Registry, log: Logger): boolean {
   if (registry.listDevices().length > 0 || registry.listWifi().length > 0) return false
-  const home = registry.createWifi({ ssid: 'Home WiFi', password: 'illustrative-home', notes: 'Main router' })
-  const backup = registry.createWifi({ ssid: 'Backup WiFi', password: 'illustrative-backup', notes: '4G router in the hall' })
+  const home = registry.createWifi({ ssid: 'Home WiFi', password: 'illustrative-home', notes: 'Illustrative, not a real network' })
+  const backup = registry.createWifi({ ssid: 'Backup WiFi', password: 'illustrative-backup', notes: 'Illustrative, not a real network' })
 
   registry.createDevice({
     name: 'Gate camera',

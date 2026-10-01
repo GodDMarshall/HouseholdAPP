@@ -18,6 +18,7 @@ import { withTimeout } from './lib/http.ts'
 import type { Logger } from './lib/log.ts'
 import type { Notifier } from './notify.ts'
 import { Registry, ValidationError } from './registry.ts'
+import { SEED_WIFI_PASSWORD_PREFIX } from './seed.ts'
 import { grabSnapshot } from './snapshot.ts'
 import type { VideoManager } from './video.ts'
 
@@ -36,6 +37,9 @@ export interface ApiDeps {
 }
 
 const PUBLIC = new Set(['/api/auth/status', '/api/auth/setup', '/api/auth/login'])
+
+/** Pictures come from devices; whatever they contain must never run as a page of the hub. */
+const SNAPSHOT_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'"
 
 const pathInput = z.object({
   id: z.string().optional(),
@@ -69,12 +73,18 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
 
   // ------------------------------------------------------------ plumbing
 
+  // The guard decides on the ROUTE THAT MATCHED, never on the raw text of the
+  // URL: the router decodes percent-escapes before matching, so "/%61pi/devices"
+  // reaches /api/devices. The raw test stays as a second trigger so unknown
+  // /api paths answer 401 instead of falling through to the app shell.
+  const guarded = (s: string) => s.startsWith('/api') || s.startsWith('/video') || s === '/ws'
   app.addHook('onRequest', async (req, reply) => {
-    const url = req.url.split('?')[0] ?? ''
-    if (!(url.startsWith('/api') || url.startsWith('/video') || url === '/ws')) return
-    if (PUBLIC.has(url)) return
+    const route = req.routeOptions?.url ?? ''
+    const raw = req.url.split('?')[0] ?? ''
+    if (!guarded(route) && !guarded(raw)) return
+    if (PUBLIC.has(route)) return
     if (!auth.verify(tokenOf(req))) {
-      reply.code(401).send({ error: auth.isConfigured() ? 'Not signed in' : 'Set a PIN first', setup: !auth.isConfigured() })
+      return reply.code(401).send({ error: auth.isConfigured() ? 'Not signed in' : 'Set a PIN first', setup: !auth.isConfigured() })
     }
   })
 
@@ -111,7 +121,8 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   })
   app.post('/api/auth/pin', async (req) => {
     const body = z.object({ current: z.string(), next: z.string() }).parse(req.body)
-    auth.changePin(body.current, body.next)
+    // Every other phone is signed out; this one stays in.
+    auth.changePin(body.current, body.next, tokenOf(req))
     return { ok: true }
   })
   app.get('/api/auth/sessions', async () => auth.sessions())
@@ -200,8 +211,17 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   })
   app.delete('/api/devices/:id', async (req) => {
     const { id } = req.params as { id: string }
+    const name = registry.getDevice(id)?.name
     if (!registry.deleteDevice(id)) throw new ActionError('Device not found', 404)
-    events.record({ type: 'device.removed', message: 'A device was removed' })
+    events.record({ type: 'device.removed', message: `${name ?? 'A device'} was removed` })
+    // Once the last illustrative device is gone, the pretend WiFi networks that
+    // came with them go too, unless the owner has made one real by giving it a
+    // real password.
+    if (!registry.listDevices().some((d) => d.family === 'virtual')) {
+      for (const w of registry.listWifi()) {
+        if (registry.getWifiSecret(w.id)?.password.startsWith(SEED_WIFI_PASSWORD_PREFIX)) registry.deleteWifi(w.id)
+      }
+    }
     return { ok: true }
   })
   app.get('/api/devices/:id/state', async (req) => {
@@ -232,7 +252,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     })
     const snap = got?.snapshot ?? null
     if (!snap) throw new ActionError('No picture available', 503)
-    reply.header('Cache-Control', 'no-store').type(snap.contentType)
+    reply.header('Cache-Control', 'no-store').header('Content-Security-Policy', SNAPSHOT_CSP).header('X-Content-Type-Options', 'nosniff').type(snap.contentType)
     return snap.body
   })
   app.get('/api/devices/:id/stream', async (req) => {
@@ -263,7 +283,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const { id } = req.params as { id: string }
     const f = actions.snapshotFile(id)
     if (!f) throw new ActionError('Snapshot not found', 404)
-    reply.header('Cache-Control', 'private, max-age=86400').type(f.contentType)
+    reply.header('Cache-Control', 'private, max-age=86400').header('Content-Security-Policy', SNAPSHOT_CSP).header('X-Content-Type-Options', 'nosniff').type(f.contentType)
     return fs.createReadStream(f.file)
   })
 

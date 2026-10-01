@@ -1,7 +1,30 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Action, ActionType, Device, DeviceState } from '@house/shared'
-import { api, ApiError } from './api.ts'
+import { api, ApiError, getToken } from './api.ts'
 import { useStore } from './store.ts'
+
+/** Load a protected picture with the sign-in header and hand back a local object URL for <img>. */
+export function useAuthBlob(url: string | null): string | null {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    if (!url) return
+    let cancelled = false
+    let made: string | null = null
+    fetch(url, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((blob) => {
+        if (cancelled) return
+        made = URL.createObjectURL(blob)
+        setSrc(made)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [url])
+  return src
+}
 
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return 'never'

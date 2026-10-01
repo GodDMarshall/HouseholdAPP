@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Action, ConnectionPath, Device, DeviceState, GateState } from '@house/shared'
-import { api, tokenUrl } from '../api.ts'
+import { api } from '../api.ts'
 import { Icon, pathIcon } from '../components/icons.tsx'
 import { ConnChip, Sheet, TopBar, pathSubtitle } from '../components/ui.tsx'
 import { Viewer } from '../components/Viewer.tsx'
-import { act, clock, smsHref, stateLine, timeAgo, useBusy, usePending, waitForAction } from '../lib.ts'
-import { navigate } from '../router.ts'
+import { act, clock, smsHref, stateLine, timeAgo, useAuthBlob, useBusy, usePending, waitForAction } from '../lib.ts'
+import { back, navigate } from '../router.ts'
 import { useStore } from '../store.ts'
 
 export function DeviceScreen({ id }: { id: string }) {
@@ -16,7 +16,7 @@ export function DeviceScreen({ id }: { id: string }) {
   if (!device) {
     return (
       <>
-        <TopBar title="Device" onBack={() => navigate('/')} />
+        <TopBar title="Device" onBack={() => back('/')} />
         <main className="content">
           <div className="empty">{connected ? <h2>This device is not in the house any more</h2> : <div className="spinner" style={{ margin: '0 auto' }} />}</div>
         </main>
@@ -29,7 +29,7 @@ export function DeviceScreen({ id }: { id: string }) {
       <TopBar
         title={device.name}
         sub={[device.room, illustrative ? 'Illustrative' : null].filter(Boolean).join(' · ')}
-        onBack={() => navigate('/')}
+        onBack={() => back('/')}
         right={
           <button className="iconbtn" onClick={() => navigate(`/device/${device.id}/edit`)} aria-label="Edit device">
             <Icon name="edit" />
@@ -159,12 +159,28 @@ function CameraPanel({ device, state }: { device: Device; state: DeviceState | u
           <h2>Pictures taken</h2>
           <div className="snapgrid">
             {shots.map((a) => (
-              <a key={a.id} href={tokenUrl(String(a.result!.url))} target="_blank" rel="noreferrer" title={clock(a.requestedAt)}>
-                <img src={tokenUrl(String(a.result!.url))} alt={`Picture from ${clock(a.requestedAt)}`} loading="lazy" />
-              </a>
+              <Shot key={a.id} url={String(a.result!.url)} label={`Picture from ${clock(a.requestedAt)}`} />
             ))}
           </div>
         </div>
+      ) : null}
+    </>
+  )
+}
+
+/** A stored picture, loaded with the sign-in header so the house token never appears in an address. */
+function Shot({ url, label }: { url: string; label: string }) {
+  const src = useAuthBlob(url)
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button className="shot" onClick={() => src && setOpen(true)} aria-label={label}>
+        {src ? <img src={src} alt={label} /> : <span className="spinner sm" />}
+      </button>
+      {open && src ? (
+        <Sheet title={label} onClose={() => setOpen(false)}>
+          <img src={src} alt={label} style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+        </Sheet>
       ) : null}
     </>
   )
@@ -485,7 +501,7 @@ function RecentCard({ device }: { device: Device }) {
             </span>
             <span className="desc">
               {clock(a.requestedAt)}
-              {a.error ? ` · ${a.error}` : ''}
+              {a.error ? ` · ${a.error}` : typeof a.result?.note === 'string' && a.result.note ? ` · ${a.result.note}` : ''}
             </span>
           </span>
           <StatusChip action={a} />
