@@ -102,6 +102,57 @@ export function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
 }
 
+/** The address on this path, or a clear error when the owner has not filled it in. */
+export function requireHost(ctx: AdapterContext): string {
+  const host = (ctx.path.host ?? '').trim()
+  if (!host) throw new Error(`No address set on the "${ctx.path.label}" connection`)
+  return host
+}
+
+/** http(s)://host:port for this path. IPv6 literals are bracketed. */
+export function baseUrl(ctx: AdapterContext, opts: { https?: boolean; defaultPort?: number } = {}): string {
+  const host = requireHost(ctx)
+  const scheme = opts.https ? 'https' : 'http'
+  const port = ctx.path.port ?? opts.defaultPort ?? (opts.https ? 443 : 80)
+  const h = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  const standard = (scheme === 'http' && port === 80) || (scheme === 'https' && port === 443)
+  return `${scheme}://${h}${standard ? '' : ':' + port}`
+}
+
+/** user:pass@ for stream URLs, percent-encoded so odd characters in passwords survive. */
+export function userInfo(username: string | undefined, password: string | undefined): string {
+  if (!username) return ''
+  return `${encodeURIComponent(username)}${password ? ':' + encodeURIComponent(password) : ''}@`
+}
+
+/** TCP reachability check for devices with no cheap status call. */
+export async function tcpProbe(host: string, port: number, timeoutMs: number): Promise<ProbeResult> {
+  const net = await import('node:net')
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const socket = net.connect({ host, port })
+    const done = (res: ProbeResult) => {
+      socket.destroy()
+      resolve(res)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => done({ ok: true, latencyMs: Date.now() - started }))
+    socket.once('timeout', () => done({ ok: false, latencyMs: null, error: `${host}:${port} did not answer` }))
+    socket.once('error', (err: NodeJS.ErrnoException) =>
+      done({
+        ok: false,
+        latencyMs: null,
+        error:
+          err.code === 'ECONNREFUSED'
+            ? `${host}:${port} refused the connection`
+            : err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH'
+              ? `${host} is not reachable from this network`
+              : err.message,
+      }),
+    )
+  })
+}
+
 /** Common config field specs so adapters read the same. */
 export const FIELD = {
   username: (help = 'The login the device asks for.') => ({ name: 'username', label: 'Username', type: 'text' as const, required: true, help }),

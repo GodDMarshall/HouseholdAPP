@@ -20,6 +20,7 @@ export const DEVICE_KINDS: DeviceKind[] = ['camera', 'gate', 'light', 'switch', 
 /** How the hub talks to it. One adapter per family. */
 export type Family =
   | 'virtual'
+  | 'rtsp'
   | 'onvif'
   | 'hikvision'
   | 'dahua'
@@ -33,7 +34,7 @@ export type Family =
   | 'gsm-sms'
 
 export const FAMILIES: Family[] = [
-  'virtual', 'onvif', 'hikvision', 'dahua', 'tapo', 'tasmota', 'shelly',
+  'virtual', 'rtsp', 'onvif', 'hikvision', 'dahua', 'tapo', 'tasmota', 'shelly',
   'tuya-cloud', 'tuya-local', 'mqtt', 'http-relay', 'gsm-sms',
 ]
 

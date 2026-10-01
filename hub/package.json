@@ -33,6 +33,7 @@
     "@types/multicast-dns": "^7.2.4",
     "@types/node": "^24.0.0",
     "@types/web-push": "^3.6.4",
+    "aedes": "^0.51.3",
     "typescript": "^5.6.0",
     "vitest": "^2.1.8"
   }

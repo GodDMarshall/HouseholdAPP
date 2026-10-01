@@ -1,6 +1,7 @@
 import type { Family, FamilyDescriptor } from '@house/shared'
 import type { Adapter } from './types.ts'
 import virtual from './virtual.ts'
+import rtsp from './rtsp.ts'
 import onvif from './onvif.ts'
 import hikvision from './hikvision.ts'
 import dahua from './dahua.ts'
@@ -13,7 +14,7 @@ import mqtt from './mqtt.ts'
 import httpRelay from './http-relay.ts'
 import gsmSms from './gsm-sms.ts'
 
-const ADAPTERS: Adapter[] = [virtual, onvif, hikvision, dahua, tapo, tasmota, shelly, tuyaCloud, tuyaLocal, mqtt, httpRelay, gsmSms]
+const ADAPTERS: Adapter[] = [virtual, onvif, hikvision, dahua, tapo, rtsp, tasmota, shelly, tuyaCloud, tuyaLocal, mqtt, httpRelay, gsmSms]
 
 const byFamily = new Map<Family, Adapter>(ADAPTERS.map((a) => [a.family, a]))
 
