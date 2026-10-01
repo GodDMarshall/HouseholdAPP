@@ -215,7 +215,7 @@ Tapo C200, C210, C500, C510 and similar. Live video, pictures, turning and saved
 - 4G models (C501GW, TC40GW): the hub reaches them only while they are on a network cable. On the SIM alone a Tapo can be reached only from the Tapo app, so no SIM connection is offered here.
 - Battery models (C410, C420, C425, D230) do not offer video this way and cannot be added. Recording to an SD card and Tapo Care together also switches this kind of access off in the camera.
 - Motion alerts are not read from the camera through this option.
-- EZVIZ cameras do not belong here. Add them as "Camera by stream address" with the username admin and the 6-letter verification code from the camera’s label as the password (switch on RTSP in the EZVIZ app first), or as "ONVIF camera" if your model supports ONVIF.
+- EZVIZ cameras do not belong here. Add them as "Camera by stream address" with the video address rtsp://{user}:{pass}@{host}:{port}/ch1/main, the username admin and the 6-letter verification code from the camera’s label as the password (switch on RTSP in the EZVIZ app first), or as "ONVIF camera" if your model supports ONVIF.
 - ICSee / XMEye cameras do not belong here. Add them as "Camera by stream address" with a dvrip:// address, for example dvrip://{user}:{pass}@{host}:34567?channel=0&subtype=0.
 - V380 cameras can be added only if yours offers ONVIF or RTSP (many do not): then use "ONVIF camera" or "Camera by stream address". Otherwise they work only in the V380 app.
 

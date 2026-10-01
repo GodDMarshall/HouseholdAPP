@@ -501,7 +501,7 @@ function RecentCard({ device }: { device: Device }) {
             </span>
             <span className="desc">
               {clock(a.requestedAt)}
-              {a.error ? ` · ${a.error}` : typeof a.result?.note === 'string' && a.result.note ? ` · ${a.result.note}` : ''}
+              {a.error ? ` · ${a.error}` : a.result?.superseded === true ? ' · changed by a later command' : typeof a.result?.note === 'string' && a.result.note ? ` · ${a.result.note}` : ''}
             </span>
           </span>
           <StatusChip action={a} />
@@ -512,6 +512,8 @@ function RecentCard({ device }: { device: Device }) {
 }
 
 export function StatusChip({ action }: { action: Action }) {
+  // A command a later one took over neither succeeded nor failed.
+  if (action.status === 'done' && action.result?.superseded === true) return <span className="chip">Replaced</span>
   switch (action.status) {
     case 'done': return <span className="chip ok">Done</span>
     case 'failed': return <span className="chip err">Failed</span>

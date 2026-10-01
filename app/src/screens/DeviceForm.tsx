@@ -114,7 +114,11 @@ export function DeviceForm({ id }: { id?: string }) {
   }, [editing])
 
   const family = families.find((f) => f.id === draft.family)
-  const usable = useMemo(() => families.filter((f) => f.kinds.includes(draft.kind)), [families, draft.kind])
+  // Real device families first; the illustrative one last.
+  const usable = useMemo(
+    () => families.filter((f) => f.kinds.includes(draft.kind)).sort((a, b) => Number(a.id === 'virtual') - Number(b.id === 'virtual')),
+    [families, draft.kind],
+  )
   const rooms = useMemo(() => [...new Set(devices.map((d) => d.room).filter(Boolean))], [devices])
   const patch = (p: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...p }))
