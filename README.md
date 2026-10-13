@@ -34,7 +34,7 @@ npm start
 ## Then
 
 1. **Add your WiFi networks** (WiFi tab): the main router and any backup router, with passwords.
-2. **Add your devices** (the + button): camera, gate, garage door, lights. [docs/ADD-YOUR-DEVICES.md](docs/ADD-YOUR-DEVICES.md) says what to look up for each kind.
+2. **Add your devices** (the + button): the app scans your network and shows what it finds; tap to add. Smart Life devices need the account linked once. [docs/ADD-YOUR-DEVICES.md](docs/ADD-YOUR-DEVICES.md) covers every route.
 3. **Remove the illustrative devices** once your own are in (open one, Edit, Remove).
 4. **Live video**: run `scripts\get-go2rtc.ps1` once. Until then cameras show stills.
 5. **Use it away from home, and get notifications**: [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md).
