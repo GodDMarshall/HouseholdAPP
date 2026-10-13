@@ -250,9 +250,9 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     registry.reorder(body.ids)
     return { ok: true }
   })
-  /** Try every path of a device as typed in the form, before saving it. */
-  app.post('/api/devices/test', async (req) => {
-    const body = deviceInput.extend({ id: z.string().optional() }).parse(req.body)
+  /** A device exactly as the form would save it, without saving: what Test and the recorder lookup work on. */
+  const asTyped = (raw: unknown): { adapter: ReturnType<typeof getAdapter>; temp: Device } => {
+    const body = deviceInput.extend({ id: z.string().optional() }).parse(raw)
     // The same checks as Save, so a test cannot pass on something Save would refuse.
     registry.validate(body as Parameters<Registry['validate']>[0])
     const adapter = getAdapter(body.family)
@@ -286,6 +286,11 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       createdAt: '',
       updatedAt: '',
     }
+    return { adapter, temp }
+  }
+  /** Try every path of a device as typed in the form, before saving it. */
+  app.post('/api/devices/test', async (req) => {
+    const { adapter, temp } = asTyped(req.body)
     const results = await Promise.all(
       temp.paths.map(async (p) => {
         const started = Date.now()
@@ -298,6 +303,18 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       }),
     )
     return { capabilities: temp.capabilities, results }
+  })
+  /** The cameras behind a recorder, as typed in the form, so they can all be added at once. */
+  app.post('/api/devices/channels', async (req) => {
+    const { adapter, temp } = asTyped(req.body)
+    const path = temp.paths.find((p) => p.enabled && p.kind !== 'sms') ?? temp.paths[0]
+    if (!adapter.listChannels || !path) return { channels: [] }
+    try {
+      const channels = await withTimeout(adapter.listChannels(devices.context(temp, path)), deps.config.deviceTimeoutMs + 500, 'Reading the recorder')
+      return { channels }
+    } catch (err) {
+      return { channels: [], error: err instanceof Error ? err.message : String(err) }
+    }
   })
   app.get('/api/devices/:id', async (req) => {
     const { id } = req.params as { id: string }

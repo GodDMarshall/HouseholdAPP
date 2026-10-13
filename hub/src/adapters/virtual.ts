@@ -1,3 +1,4 @@
+import type { ChannelInfo } from '@house/shared'
 /**
  * Virtual devices — an illustrative camera, gate and lights that behave like the
  * real thing (they go offline when re-pointed at another WiFi, the gate takes a
@@ -138,6 +139,7 @@ const adapter: Adapter = {
         { name: 'simReachable', label: 'SIM has a public IP', type: 'toggle', default: false, help: 'Off = the carrier blocks inbound connections, like a normal consumer SIM.' },
         { name: 'failRate', label: 'Flakiness (%)', type: 'number', default: 0, help: 'Chance that any check fails, to try the failover.' },
         { name: 'jammed', label: 'Gate is jammed', type: 'toggle', default: false, help: 'The gate takes commands but does not move, to see how a gate that fails is reported.', showWhen: { field: 'simulate', equals: 'gate' } },
+        { name: 'recorderChannels', label: 'Cameras behind this recorder', type: 'number', default: 0, help: 'Leave 0 for a single camera. A number makes this an illustrative recorder (NVR / DVR): when it is added, every camera behind it is offered at once.', showWhen: { field: 'simulate', equals: 'camera' } },
         { name: 'joinFails', label: 'Fails to join a new WiFi', type: 'toggle', default: false, help: 'When moved to another network it restarts and comes back on the old one, like a device given a wrong password.' },
       ],
       pathKinds: ['lan', 'cellular', 'sms', 'cloud'],
@@ -300,6 +302,14 @@ const adapter: Adapter = {
       default:
         return unsupported(action)
     }
+  },
+
+  /** An illustrative recorder lists the cameras behind it. */
+  async listChannels(ctx): Promise<ChannelInfo[]> {
+    if (simulateOf(ctx.device.config) !== 'camera') return []
+    const n = Math.min(64, Math.max(0, Math.round(ctx.num('recorderChannels', 0))))
+    const names = ['Gate', 'Drive', 'Porch', 'Garden', 'Garage', 'Back door', 'Hall', 'Terrace']
+    return Array.from({ length: n }, (_, i) => ({ channel: i + 1, name: names[i] ?? `Camera ${i + 1}` }))
   },
 
   async snapshot(ctx): Promise<Snapshot> {

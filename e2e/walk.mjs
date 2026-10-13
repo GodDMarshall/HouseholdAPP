@@ -8,6 +8,7 @@
 // (set CHROME_PATH if it is somewhere unusual) and a built app (npm run build).
 import puppeteer from 'puppeteer-core'
 import { spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -96,6 +97,54 @@ const tasmotaServer = http.createServer((req, res) => {
 })
 await new Promise((r) => tasmotaServer.listen(0, '127.0.0.1', r))
 const TASMOTA_PORT = tasmotaServer.address().port
+
+// A stand-in CP Plus recorder with three cameras behind it, for the "every camera at once" check.
+// It challenges with Digest the way the real ones do, so the hub recognises it from its address.
+const DVR_REALM = 'Login to DVR'
+const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=', 'base64')
+const md5 = (s) => crypto.createHash('md5').update(s).digest('hex')
+const dvrLoginOk = (req) => {
+  const h = req.headers.authorization || ''
+  if (!h.startsWith('Digest ')) return false
+  const f = {}
+  for (const m of h.slice(7).matchAll(/(\w+)=(?:"([^"]*)"|([^,]*))/g)) f[m[1]] = m[2] ?? m[3]
+  if (f.username !== 'admin' || f.realm !== DVR_REALM) return false
+  const ha1 = md5(`admin:${DVR_REALM}:secret`)
+  const ha2 = md5(`${req.method}:${f.uri}`)
+  const expected = f.qop ? md5(`${ha1}:${f.nonce}:${f.nc}:${f.cnonce}:${f.qop}:${ha2}`) : md5(`${ha1}:${f.nonce}:${ha2}`)
+  return expected === f.response
+}
+const dvr = { requests: [] }
+const dvrServer = http.createServer((req, res) => {
+  dvr.requests.push(req.url)
+  if (!dvrLoginOk(req)) {
+    res.writeHead(401, { 'WWW-Authenticate': `Digest realm="${DVR_REALM}", nonce="5e9c2f7a", qop="auth"` })
+    return res.end()
+  }
+  const u = new URL(req.url, 'http://dvr')
+  const action = u.searchParams.get('action')
+  const text = (body) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end(body.replace(/\n/g, '\r\n') + '\r\n')
+  }
+  if (u.pathname === '/cgi-bin/magicBox.cgi') {
+    if (action === 'getSystemInfo') return text('serialNumber=DVR0001\ndeviceType=CP-UVR-0801E1-CV4\nhardwareVersion=1.00')
+    if (action === 'getDeviceType') return text('type=CP-UVR-0801E1-CV4')
+    if (action === 'getSoftwareVersion') return text('version=4.000.0000000.1,build:2024-01-01')
+  }
+  if (u.pathname === '/cgi-bin/configManager.cgi' && action === 'getConfig') {
+    const name = u.searchParams.get('name')
+    if (name === 'Network') return text('table.Network.DefaultInterface=eth0\ntable.Network.eth0.PhysicalAddress=aa:bb:cc:dd:ee:01')
+    if (name === 'ChannelTitle') return text('table.ChannelTitle[0].Name=Gate\ntable.ChannelTitle[1].Name=Drive\ntable.ChannelTitle[2].Name=Porch')
+  }
+  if (u.pathname === '/cgi-bin/snapshot.cgi') {
+    res.writeHead(200, { 'Content-Type': 'image/jpeg' })
+    return res.end(TINY_JPEG)
+  }
+  text('Error')
+})
+await new Promise((r) => dvrServer.listen(0, '127.0.0.1', r))
+const DVR_PORT = dvrServer.address().port
 
 const browser = await puppeteer.launch({
   executablePath: findBrowser(),
@@ -342,6 +391,47 @@ try {
   await clickText('.sheet button.danger', 'Remove')
   await sleep(800)
 
+  // ---- 8c. a recorder: every camera behind it in one go
+  await page.goto(BASE + '/add', { waitUntil: 'networkidle2' })
+  await sleep(800)
+  await waitText('Scan finished', 40000)
+  await clickText('button.row', 'I know its address')
+  await sleep(300)
+  await page.type('#a-host', `127.0.0.1:${DVR_PORT}`)
+  await clickText('.sheet button.primary', 'Find out what it is')
+  check('A recorder is recognised at a typed address', await waitText('Add Dahua / CP Plus camera', 10000))
+  await page.type('#f-password', 'secret')
+  await clickText('.sheet button.primary', 'Add to my house')
+  check(
+    'The hub offers every camera behind the recorder, by name',
+    (await waitText('3 cameras on this recorder', 15000)) && (await page.evaluate(() => [...document.querySelectorAll('.chrow input')].map((i) => i.value).join(','))) === 'Gate,Drive,Porch',
+    dvr.requests.join(' , '),
+  )
+  await shot('easy-add-recorder')
+  await page.click('.chrow:nth-child(2) .switch') // leave Drive out
+  await sleep(200)
+  check('Leaving one out is reflected on the button', await waitText('Add 2 cameras', 3000))
+  await clickText('.sheet button.primary', 'Add 2 cameras')
+  check(
+    'Each chosen camera becomes its own tile',
+    (await waitText('2 cameras added', 15000)) &&
+      (await page.evaluate(() => {
+        const names = [...document.querySelectorAll('.tname')].map((e) => e.innerText.trim())
+        return names.includes('Gate') && names.includes('Porch') && !names.includes('Drive')
+      })),
+  )
+  await sleep(3000)
+  const shotsFor = (n) => dvr.requests.filter((u) => u.includes(`snapshot.cgi?channel=${n}`)).length
+  check('Each tile asks the recorder for its own camera', shotsFor(1) > 0 && shotsFor(3) > 0 && shotsFor(2) === 0, dvr.requests.filter((u) => u.includes('snapshot')).join(' , '))
+  await shot('easy-add-recorder-tiles')
+  // Take the two cameras out again so the later checks see the house as before.
+  await page.evaluate(async () => {
+    const t = localStorage.getItem('hc.token')
+    const list = await (await fetch('/api/devices', { headers: { Authorization: 'Bearer ' + t } })).json()
+    for (const d of list.filter((x) => x.family === 'dahua')) await fetch('/api/devices/' + d.id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + t } })
+  })
+  await sleep(500)
+
   // ---- 9. add a device through the wizard
   await page.goto(BASE + '/add', { waitUntil: 'networkidle2' })
   await sleep(600)
@@ -484,6 +574,7 @@ console.log(`\n${results.length - failed.length}/${results.length} checks passed
 console.log(`screenshots: ${shots}`)
 await browser.close()
 tasmotaServer.close()
+dvrServer.close()
 if (hub) {
   hub.kill()
   await new Promise((r) => setTimeout(r, 500))

@@ -1,3 +1,4 @@
+import type { ChannelInfo } from '@house/shared'
 import type {
   Action,
   Capability,
@@ -92,6 +93,8 @@ export interface Adapter {
   subscribe?(ctx: AdapterContext, onState: (state: Record<string, unknown>) => void): Promise<() => void>
   /** Find devices of this family on the network. */
   discover?(seconds: number, log: Logger): Promise<DiscoveredDevice[]>
+  /** On a recorder (NVR / DVR): the cameras behind it, so they can all be added in one go. */
+  listChannels?(ctx: AdapterContext): Promise<ChannelInfo[]>
 }
 
 export function unsupported(action: Action): ActionResult {

@@ -48,11 +48,10 @@ export class Discovery {
     const add = (list: DiscoveredDevice[]) => {
       let changed = false
       for (const d of list) {
-        const key = d.host
-        const prev = found.get(key)
-        // Keep the most specific answer per address: an identified family beats a bare "something with video".
-        if (!prev || rank(d) > rank(prev)) {
-          found.set(key, prev ? { ...d, config: { ...prev.config, ...d.config } } : d)
+        const prev = found.get(d.host)
+        const next = better(prev, d)
+        if (next !== prev) {
+          found.set(d.host, next)
           changed = true
         }
       }
@@ -110,10 +109,42 @@ export class Discovery {
   }
 }
 
+/**
+ * The entry to keep for one address when two methods found it. A maker's own
+ * family (Dahua, Hikvision ...) beats the generic ONVIF answer, which beats bare
+ * video; a device announcing itself beats the sweep's guess. The loser still
+ * lends its model name, so the owner reads "CP-UVR-0801E1-CV4" rather than
+ * only "Dahua or CP Plus".
+ */
+export function better(prev: DiscoveredDevice | undefined, d: DiscoveredDevice): DiscoveredDevice {
+  if (!prev) return d
+  const [win, lose] = rank(d) > rank(prev) ? [d, prev] : [prev, d]
+  if (win.family === lose.family) {
+    const config = { ...lose.config, ...win.config }
+    return win === prev && shallowEqual(config, prev.config) ? prev : { ...win, config }
+  }
+  const model = modelOf(lose)
+  if (!model || modelOf(win)) return win
+  return { ...win, detail: win.detail ? `${model} · ${win.detail}` : model }
+}
+
 function rank(d: DiscoveredDevice): number {
   if (d.family === 'rtsp') return 1
-  if (d.via === 'scan') return 2
-  return 3
+  if (d.family === 'onvif') return 2
+  if (d.via === 'scan') return 3
+  return 4
+}
+
+/** The model name an ONVIF answer carries in its detail ("CP-UVR-0801E1-CV4 · /onvif/device_service"). */
+function modelOf(d: DiscoveredDevice): string | null {
+  if (d.family !== 'onvif') return null
+  const first = (d.detail ?? '').split(' · ')[0]?.trim() ?? ''
+  return first && !first.startsWith('/') ? first : null
+}
+
+function shallowEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const ka = Object.keys(a)
+  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k])
 }
 
 function ipNum(host: string): number {

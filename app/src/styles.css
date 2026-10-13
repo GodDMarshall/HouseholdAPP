@@ -378,3 +378,10 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 @media (prefers-reduced-motion: reduce) {
   .radar .sweep, .radar.live .ring, .radar.live .core span, .radar .link, .radar .blip, .radar.live .hud.br { animation: none; }
 }
+
+/* The cameras behind a recorder, one row each */
+.chlist { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
+.chrow { display: flex; align-items: center; gap: 10px; }
+.chrow .input { flex: 1; min-width: 0; }
+.chrow:not(.on) .input { opacity: 0.45; }
+.chnum { width: 22px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }

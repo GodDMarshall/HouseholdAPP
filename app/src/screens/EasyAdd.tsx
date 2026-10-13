@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   kindLabel,
+  type ChannelInfo,
   type Device,
   type DeviceInput,
   type DeviceKind,
@@ -282,6 +283,8 @@ function QuickAdd({ preset, onClose }: { preset: DiscoveredDevice; onClose: () =
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  /** Set when the device turned out to be a recorder: the cameras behind it, each on or off. */
+  const [channels, setChannels] = useState<Array<ChannelInfo & { on: boolean }> | null>(null)
   const rooms = useMemo(() => [...new Set(devices.map((d) => d.room).filter(Boolean))], [devices])
 
   if (!fam) {
@@ -323,6 +326,14 @@ function QuickAdd({ preset, onClose }: { preset: DiscoveredDevice; onClose: () =
           setFailed(test.results[0]?.error ?? 'It did not answer')
           return
         }
+        // A recorder (NVR / DVR): offer every camera behind it instead of adding it as one.
+        if (kind === 'camera' && pathKind !== 'sms') {
+          const found = await api.post<{ channels: ChannelInfo[] }>('/api/devices/channels', input).catch(() => ({ channels: [] as ChannelInfo[] }))
+          if (found.channels.length > 1) {
+            setChannels(found.channels.map((c) => ({ ...c, on: true })))
+            return
+          }
+        }
       }
       const saved = await api.post<Device>('/api/devices', input)
       toast(`${saved.name} added`, 'ok')
@@ -332,6 +343,66 @@ function QuickAdd({ preset, onClose }: { preset: DiscoveredDevice; onClose: () =
     } finally {
       setBusy(false)
     }
+  }
+
+  if (channels) {
+    const picked = channels.filter((c) => c.on)
+    const addAll = async () => {
+      setBusy(true)
+      setError(null)
+      const base = build()
+      const added: number[] = []
+      try {
+        for (const c of picked) {
+          await api.post<Device>('/api/devices', { ...base, name: c.name.trim() || `Camera ${c.channel}`, config: { ...base.config, channel: c.channel } })
+          added.push(c.channel)
+        }
+        toast(`${added.length} camera${added.length === 1 ? '' : 's'} added`, 'ok')
+        navigate('/', true)
+      } catch (err) {
+        // The ones already in stay in; the list keeps only the rest, so a second tap never doubles them.
+        setChannels((list) => list && list.filter((c) => !added.includes(c.channel)))
+        const why = err instanceof ApiError ? err.message : 'Could not add it'
+        setError(added.length ? `${added.length} added. The rest did not go in: ${why}. Tap Add again for the rest.` : why)
+      } finally {
+        setBusy(false)
+      }
+    }
+    const label = picked.length === 0 ? 'Pick at least one camera' : `Add ${picked.length === channels.length ? 'all ' : ''}${picked.length} camera${picked.length === 1 ? '' : 's'}`
+    return (
+      <Sheet title={`${channels.length} cameras on this recorder`} subtitle={`${preset.host} · each becomes its own tile`} onClose={onClose}>
+        <p className="note">The names come from the recorder. Change any here or later, and switch off the ones you do not want.</p>
+        <div className="chlist">
+          {channels.map((c, i) => (
+            <div key={c.channel} className={`chrow ${c.on ? 'on' : ''}`}>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={c.on}
+                aria-label={`Add camera ${c.channel}`}
+                className={`switch ${c.on ? 'on' : ''}`}
+                onClick={() => setChannels((list) => list && list.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))}
+              />
+              <span className="chnum">{c.channel}</span>
+              <input
+                className="input"
+                aria-label={`Name of camera ${c.channel}`}
+                value={c.name}
+                onChange={(e) => setChannels((list) => list && list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+              />
+            </div>
+          ))}
+        </div>
+        {error ? <p className="note err">{error}</p> : null}
+        <button className="btn primary block" disabled={busy || picked.length === 0} onClick={() => void addAll()}>
+          {busy ? <span className="spinner sm" /> : <Icon name="plus" />}
+          {busy ? 'Adding…' : label}
+        </button>
+        <button className="btn ghost block" style={{ marginTop: 10 }} disabled={busy} onClick={() => setChannels(null)}>
+          Just one camera, number {String(config.channel ?? 1)}
+        </button>
+      </Sheet>
+    )
   }
 
   return (

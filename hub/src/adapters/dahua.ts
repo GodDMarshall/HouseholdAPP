@@ -1,3 +1,4 @@
+import type { ChannelInfo } from '@house/shared'
 /**
  * Dahua / CP Plus cameras over the Dahua HTTP CGI API (CP Plus's wired and
  * professional lines are Dahua-made and answer the same calls).
@@ -613,6 +614,7 @@ const adapter: Adapter = {
       capabilities: ['stream', 'snapshot', 'ptz', 'presets', 'wifi', 'wifi-scan', 'cellular', 'reboot', 'state'],
       notes: [
         'Works with Dahua cameras and recorders and with CP Plus models built by Dahua (most wired and professional CP Plus cameras). Live video, still pictures and restart work on all of them.',
+        'A recorder (NVR / DVR) is added once: the hub reads the camera names from it and offers every camera at one go. Each becomes its own tile with its "Camera number" set for you.',
         'CP Plus ezyKam+ SIM cameras (CP-V32G, CP-Z32G and similar) are a different design and usually do not answer this way. If the connection check fails for one of those, add it as an ONVIF camera instead.',
         'In the camera\'s own settings page, "CGI service" must be on, and on newer cameras Authentication Mode must be "Compatible" (MD5 digest). Otherwise the camera rejects the hub.',
         'These cameras lock a login for some minutes after a few wrong passwords. If you correct the password here and the camera still refuses it, wait a while and check again.',
@@ -675,6 +677,20 @@ const adapter: Adapter = {
     } catch (err) {
       return { ok: false, latencyMs: null, error: err instanceof Error ? err.message : String(err) }
     }
+  },
+
+  /** The cameras behind a recorder, from the names set on it. A single camera lists one (or none). */
+  async listChannels(ctx): Promise<ChannelInfo[]> {
+    const kv = await readKv(ctx, '/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle')
+    if (!kv) return []
+    const out: ChannelInfo[] = []
+    for (const [key, value] of Object.entries(kv)) {
+      const m = /^ChannelTitle\[(\d+)\]\.Name$/.exec(key)
+      if (!m) continue
+      const index = Number(m[1])
+      out.push({ channel: index + 1, name: value.trim() || `Camera ${index + 1}` })
+    }
+    return out.sort((a, b) => a.channel - b.channel)
   },
 
   async readState(ctx): Promise<Record<string, unknown>> {

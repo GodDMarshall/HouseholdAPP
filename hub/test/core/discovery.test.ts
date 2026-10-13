@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SECRET_MASK, type DiscoveredDevice, type TuyaAccountDevice } from '@house/shared'
 import { resetTuyaCloud } from '../../src/adapters/tuya-cloud.ts'
-import { decodeTuyaBroadcast, identify, tuyaScan } from '../../src/discovery.ts'
+import { better, decodeTuyaBroadcast, identify, tuyaScan } from '../../src/discovery.ts'
 import { logger } from '../../src/lib/log.ts'
 import type { ServerResponse } from 'node:http'
 import { mockServer, send, type MockServer, type RecordedRequest } from '../helpers.ts'
@@ -255,5 +255,47 @@ describe('the Smart Life account link', () => {
     const stranger: DiscoveredDevice = { ...heardGate, config: { deviceId: 'someone-elses', version: '3.3' } }
     await expect(t.hub.tuya.devices([stranger])).rejects.toThrow(/Link App Account/)
     expect((await t.hub.tuya.devices([], 'gate1')).length).toBe(3) // a typed device id is enough
+  })
+})
+
+describe('one address found by two methods', () => {
+  const dahua: DiscoveredDevice = { family: 'dahua', kind: 'camera', name: 'Dahua / CP Plus camera', host: '192.168.1.5', port: 80, detail: 'Dahua or CP Plus', config: { username: 'admin' }, via: 'scan', needs: ['password'] }
+  const onvif: DiscoveredDevice = { family: 'onvif', kind: 'camera', name: 'CPPLUS', host: '192.168.1.5', port: 80, detail: 'CP-UVR-0801E1-CV4 · /onvif/device_service', config: { username: '', password: '', onvifPath: '/onvif/device_service' }, via: 'onvif', needs: ['username', 'password'] }
+
+  it('keeps the maker\u2019s own family over the generic ONVIF answer, whichever came first, and borrows the model name', () => {
+    for (const [first, second] of [
+      [onvif, dahua],
+      [dahua, onvif],
+    ] as const) {
+      const kept = better(better(undefined, first), second)
+      expect(kept.family).toBe('dahua')
+      expect(kept.detail).toBe('CP-UVR-0801E1-CV4 · Dahua or CP Plus')
+      expect(kept.config).toEqual({ username: 'admin' })
+      expect(kept.needs).toEqual(['password'])
+    }
+  })
+
+  it('a Smart Life device announcing itself beats the sweep\u2019s guess and keeps its id', () => {
+    const sweep: DiscoveredDevice = { family: 'tuya-local', kind: 'switch', name: 'Smart Life device', host: '192.168.1.2', port: 6668, detail: 'Tuya', config: {}, via: 'scan', needs: ['deviceId', 'localKey'] }
+    const heard: DiscoveredDevice = { ...sweep, detail: 'Tuya protocol 3.5', config: { deviceId: 'd79c9d1dc34fc0628bhkq7', version: '3.5' }, via: 'tuya', needs: ['localKey'] }
+    for (const [first, second] of [
+      [sweep, heard],
+      [heard, sweep],
+    ] as const) {
+      const kept = better(better(undefined, first), second)
+      expect(kept.detail).toBe('Tuya protocol 3.5')
+      expect(kept.needs).toEqual(['localKey'])
+      expect(kept.config).toEqual({ deviceId: 'd79c9d1dc34fc0628bhkq7', version: '3.5' })
+    }
+  })
+
+  it('an ONVIF camera without a model name, or bare video, adds nothing to what is known', () => {
+    const first = better(undefined, dahua)
+    expect(better(first, { ...dahua })).toBe(first)
+    expect(better(first, { ...onvif, detail: '/onvif/device_service' })).toBe(first)
+    expect(better(first, { family: 'rtsp', kind: 'camera', name: 'Camera with video address', host: '192.168.1.5', port: 554, detail: 'Video (RTSP) on port 554', config: {}, via: 'scan', needs: ['streamUrl'] })).toBe(first)
+    // generic ONVIF still beats bare video
+    const rtsp = better(undefined, { family: 'rtsp', kind: 'camera', name: 'Camera with video address', host: '192.168.1.9', port: 554, detail: 'Video (RTSP) on port 554', config: {}, via: 'scan', needs: ['streamUrl'] })
+    expect(better(rtsp, { ...onvif, host: '192.168.1.9' }).family).toBe('onvif')
   })
 })

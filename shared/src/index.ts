@@ -456,3 +456,11 @@ export function pathKindLabel(kind: PathKind): string {
     case 'sms': return 'SMS'
   }
 }
+
+/** One camera behind a recorder (NVR / DVR). */
+export interface ChannelInfo {
+  /** The number the recorder uses for it (1 = first). */
+  channel: number
+  /** The name set on the recorder, or "Camera N". */
+  name: string
+}

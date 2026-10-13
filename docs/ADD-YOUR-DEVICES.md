@@ -181,6 +181,7 @@ Dahua cameras and recorders, and CP Plus models made by Dahua. Live view, pictur
 ### Good to know
 
 - Works with Dahua cameras and recorders and with CP Plus models built by Dahua (most wired and professional CP Plus cameras). Live video, still pictures and restart work on all of them.
+- A recorder (NVR / DVR) is added once: the hub reads the camera names from it and offers every camera at one go. Each becomes its own tile with its "Camera number" set for you.
 - CP Plus ezyKam+ SIM cameras (CP-V32G, CP-Z32G and similar) are a different design and usually do not answer this way. If the connection check fails for one of those, add it as an ONVIF camera instead.
 - In the camera's own settings page, "CGI service" must be on, and on newer cameras Authentication Mode must be "Compatible" (MD5 digest). Otherwise the camera rejects the hub.
 - These cameras lock a login for some minutes after a few wrong passwords. If you correct the password here and the camera still refuses it, wait a while and check again.
@@ -657,6 +658,7 @@ Behaves like a real camera, gate or light with no hardware. Good for trying the 
 | SIM has a public IP (optional) | Off = the carrier blocks inbound connections, like a normal consumer SIM. |
 | Flakiness (%) (optional) | Chance that any check fails, to try the failover. Starts as: 0. |
 | Gate is jammed (optional) | The gate takes commands but does not move, to see how a gate that fails is reported. |
+| Cameras behind this recorder (optional) | Leave 0 for a single camera. A number makes this an illustrative recorder (NVR / DVR): when it is added, every camera behind it is offered at once. Starts as: 0. |
 | Fails to join a new WiFi (optional) | When moved to another network it restarts and comes back on the old one, like a device given a wrong password. |
 
 ### Good to know

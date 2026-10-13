@@ -146,6 +146,8 @@ interface CameraOptions {
   setConfig?: 'OK' | 'ERROR' | 'drop' | 'hang'
   reboot?: string
   snapshot?: 'jpeg' | 'error' | 'unlabelled' | 'html'
+  /** Answer to configManager getConfig name=ChannelTitle: a recorder lists one line per camera. */
+  channelTitles?: string
 }
 
 function newerFirmwareGuard(username: string, password: string) {
@@ -215,6 +217,7 @@ function camera(o: CameraOptions = {}): MockHandler {
       case '/cgi-bin/configManager.cgi':
         if (action === 'getConfig' && req.query.get('name') === 'Network') return send(res, 200, NETWORK)
         if (action === 'getConfig' && req.query.get('name') === 'WLan') return answer(o.wlan ?? WLAN)
+        if (action === 'getConfig' && req.query.get('name') === 'ChannelTitle') return answer(o.channelTitles ?? 'ERROR')
         if (action === 'setConfig') {
           if (o.setConfig === 'drop') {
             raw.socket.destroy()
@@ -1220,5 +1223,32 @@ describe('dahua adapter: video address details', () => {
   it('does not put the HTTPS switch or the control port into the video address', () => {
     const ctx = makeCtx({ family: 'dahua', config: { username: 'admin', password: 'secret', https: true }, path: { host: '192.168.1.108', port: 80 } })
     expect(adapter.streamSources!(ctx)[0]).toBe('rtsp://admin:secret@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0')
+  })
+})
+
+describe('a recorder with several cameras behind it', () => {
+  it('lists the cameras by the names set on the recorder, in order, with a stand-in name for a blank one', async () => {
+    server = await mockServer(camera({ channelTitles: lines('table.ChannelTitle[2].Name=Porch', 'table.ChannelTitle[0].Name=Gate', 'table.ChannelTitle[1].Name=', 'table.ChannelTitle[7].Name=CAM 8') }))
+    const list = await adapter.listChannels!(ctxFor(server))
+    expect(list).toEqual([
+      { channel: 1, name: 'Gate' },
+      { channel: 2, name: 'Camera 2' },
+      { channel: 3, name: 'Porch' },
+      { channel: 8, name: 'CAM 8' },
+    ])
+    expect(calls(server)).toEqual(['/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle'])
+  })
+
+  it('a camera without a channel table lists nothing, whichever way it says no', async () => {
+    server = await mockServer(camera())
+    expect(await adapter.listChannels!(ctxFor(server))).toEqual([])
+    await server.close()
+    server = await mockServer(camera({ errorStatus: 400 }))
+    expect(await adapter.listChannels!(ctxFor(server))).toEqual([])
+  })
+
+  it('a wrong password is reported, not turned into an empty list', async () => {
+    server = await mockServer(camera({ password: 'other' }))
+    await expect(adapter.listChannels!(ctxFor(server))).rejects.toThrow(/password|login|refused/i)
   })
 })

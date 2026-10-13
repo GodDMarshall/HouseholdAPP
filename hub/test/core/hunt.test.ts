@@ -251,3 +251,24 @@ describe('after a hub restart', () => {
     expect(t.events.some((e) => e.type === 'action.interrupted' && /Main gate: Open gate was cut off by a hub restart/.test(e.message))).toBe(true)
   })
 })
+
+describe('a recorder with several cameras', () => {
+  it('is offered as its cameras, each with its own number; anything else answers with an empty list', async () => {
+    const input = { name: 'Recorder', kind: 'camera', family: 'virtual', room: 'Yard', config: { simulate: 'camera', recorderChannels: 3 }, paths: [{ kind: 'lan', host: '192.168.1.5', port: 80 }] }
+    const res = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', headers: auth(), payload: input })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ channels: [{ channel: 1, name: 'Gate' }, { channel: 2, name: 'Drive' }, { channel: 3, name: 'Porch' }] })
+    const single = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', headers: auth(), payload: { ...input, config: { simulate: 'camera' } } })
+    expect(single.json()).toEqual({ channels: [] })
+    const gate = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', headers: auth(), payload: { ...input, kind: 'gate', config: { simulate: 'gate', recorderChannels: 3 } } })
+    expect(gate.json()).toEqual({ channels: [] })
+    const noPath = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', headers: auth(), payload: { ...input, paths: [] } })
+    expect(noPath.json()).toEqual({ channels: [] })
+    // the same checks as Save: a bad device is refused in plain words
+    const bad = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', headers: auth(), payload: { ...input, family: 'nope' } })
+    expect(bad.statusCode).toBe(400)
+    expect(bad.json().error).toMatch(/Unknown device family/)
+    const noAuth = await t.hub.app.inject({ method: 'POST', url: '/api/devices/channels', payload: input })
+    expect(noAuth.statusCode).toBe(401)
+  })
+})

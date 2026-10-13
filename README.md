@@ -34,7 +34,7 @@ npm start
 ## Then
 
 1. **Add your WiFi networks** (WiFi tab): the main router and any backup router, with passwords.
-2. **Add your devices** (the + button): the app scans your network and shows what it finds; tap to add. Smart Life devices need the account linked once. [docs/ADD-YOUR-DEVICES.md](docs/ADD-YOUR-DEVICES.md) covers every route.
+2. **Add your devices** (the + button): the app scans your network and shows what it finds; tap to add. A recorder (DVR / NVR) offers every camera behind it in one go, one tile each. Smart Life devices need the account linked once. [docs/ADD-YOUR-DEVICES.md](docs/ADD-YOUR-DEVICES.md) covers every route.
 3. **Remove the illustrative devices** once your own are in (open one, Edit, Remove).
 4. **Live video**: run `scripts\get-go2rtc.ps1` once. Until then cameras show stills.
 5. **Use it away from home, and get notifications**: [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md).
@@ -58,7 +58,7 @@ npm start
 |---|---|
 | ONVIF camera | Almost any IP camera |
 | Hikvision camera | Hikvision and Hik-Connect cameras, including 4G models |
-| Dahua / CP Plus camera | Dahua and CP Plus cameras |
+| Dahua / CP Plus camera | Dahua and CP Plus cameras and recorders (CP-UVR, NVR, XVR) |
 | TP-Link Tapo camera | Tapo C-series |
 | Camera by stream address | Anything with an RTSP address (EZVIZ, ICSee and others) |
 | Tasmota switch or relay | Sonoff and other ESP switches running Tasmota: lights, sockets, gate relays |
