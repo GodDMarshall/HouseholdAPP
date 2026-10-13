@@ -61,7 +61,10 @@ a { color: var(--accent); }
 .iconbtn:active { background: var(--card-2); }
 .iconbtn svg { width: 22px; height: 22px; }
 
-.content { flex: 1; padding: 8px 16px calc(96px + var(--safe-bottom)); }
+.content { flex: 1; padding: 8px 16px calc(96px + var(--safe-bottom)); overflow-x: hidden; min-width: 0; }
+.shell { overflow-x: hidden; }
+/* A long one-word name must never push the page wider than the phone. */
+.tile .tname, .tile .tstate, .row .title, .row .desc, .sheet h2, .sheet .ssub, .toast span, .topbar h1, .feed .row .desc, .note, .banner { overflow-wrap: anywhere; min-width: 0; }
 
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -273,7 +276,8 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 /* ---------- toasts / sheets ---------- */
 
 .toasts { position: fixed; left: 0; right: 0; top: calc(70px + var(--safe-top)); z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 12px; pointer-events: none; }
-.toast { pointer-events: auto; max-width: 520px; width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); font-size: 15px; display: flex; gap: 10px; align-items: center; animation: rise 0.18s ease; }
+.toast { pointer-events: auto; max-width: 520px; width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); font-size: 15px; display: flex; gap: 10px; align-items: center; animation: rise 0.18s ease; min-width: 0; }
+.toast span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .toast.ok { border-color: rgba(74, 222, 128, 0.5); }
 .toast.warn { border-color: rgba(251, 191, 36, 0.6); }
 .toast.error { border-color: rgba(248, 113, 113, 0.6); }
@@ -324,6 +328,7 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 .radar.live .ring:nth-of-type(3) { animation-delay: 0.3s; }
 .radar.live .ring:nth-of-type(4) { animation-delay: 0.6s; }
 .radar.live .ring:nth-of-type(5) { animation-delay: 0.9s; }
+.radar .sweepbox { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; pointer-events: none; }
 .radar .sweep {
   position: absolute; inset: 2%; border-radius: 50%; pointer-events: none;
   background: conic-gradient(from 0deg, rgba(94, 234, 212, 0) 0deg, rgba(94, 234, 212, 0) 290deg, rgba(94, 234, 212, 0.05) 320deg, rgba(94, 234, 212, 0.38) 359deg, rgba(94, 234, 212, 0) 360deg);
@@ -357,7 +362,7 @@ button.row:active { background: rgba(255, 255, 255, 0.03); }
 @keyframes blink { 50% { opacity: 0.25; } }
 
 .scanlog { margin: 14px 0 6px; min-height: 66px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--muted); text-align: center; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
-.scanlog div { opacity: 0.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scanlog div { opacity: 0.45; overflow-wrap: anywhere; }
 .scanlog div.now { opacity: 1; color: var(--text); white-space: normal; font-family: inherit; font-size: 14px; }
 .radar.live + .scanlog div.now::after { content: ''; display: inline-block; width: 7px; height: 14px; margin-left: 4px; vertical-align: -2px; background: var(--accent); animation: blink 0.9s steps(2) infinite; }
 

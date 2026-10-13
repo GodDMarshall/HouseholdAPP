@@ -37,6 +37,7 @@ export function DeviceScreen({ id }: { id: string }) {
         }
       />
       <main className="content" style={{ paddingBottom: 40 }}>
+        {!connected ? <div className="banner err">Not connected to the hub. What you see may be out of date; controls are off until it is back.</div> : null}
         <PendingCards deviceId={device.id} />
         {device.kind === 'camera' ? (
           <CameraPanel device={device} state={state} />
@@ -108,7 +109,8 @@ function PendingCards({ deviceId }: { deviceId: string }) {
 // ---------------------------------------------------------------- camera
 
 function CameraPanel({ device, state }: { device: Device; state: DeviceState | undefined }) {
-  const online = state?.online === true
+  const connected = useStore((s) => s.connected)
+  const online = state?.online === true && connected
   const hasPtz = device.capabilities.includes('ptz')
   const presets = Array.isArray(state?.state.presets) ? (state!.state.presets as Array<string | number>) : []
   const actions = useStore((s) => s.actions)
@@ -242,14 +244,15 @@ function DPad({ deviceId, disabled }: { deviceId: string; disabled: boolean }) {
 // ------------------------------------------------------------------ gate
 
 function GatePanel({ device, state }: { device: Device; state: DeviceState | undefined }) {
-  const online = state?.online === true
+  const connected = useStore((s) => s.connected)
+  const online = state?.online === true && connected
   const busy = useBusy(device.id)
   const knows = device.capabilities.includes('gate-state')
   const gate = (knows ? (state?.state.gate as GateState | undefined) : undefined) ?? 'unknown'
   const open = gate === 'open' ? 1 : gate === 'closed' ? 0 : gate === 'opening' ? 0.75 : gate === 'closing' ? 0.25 : 0.5
   const moving = gate === 'opening' || gate === 'closing'
   const viaSms = device.paths.find((p) => p.id === state?.activePathId)?.kind === 'sms'
-  const label = !online ? 'Unreachable' : !knows ? (busy ? 'Sending…' : 'Ready') : gate === 'unknown' ? 'Position unknown' : viaSms ? `Last seen ${gate}` : gate.charAt(0).toUpperCase() + gate.slice(1)
+  const label = !connected ? 'Hub not connected' : !online ? 'Unreachable' : !knows ? (busy ? 'Sending…' : 'Ready') : gate === 'unknown' ? 'Position unknown' : viaSms ? `Last seen ${gate}` : gate.charAt(0).toUpperCase() + gate.slice(1)
   return (
     <div className="hero">
       <svg className="gatevis" viewBox="0 0 360 150" role="img" aria-label={`Gate ${label}`}>
@@ -290,7 +293,8 @@ function GatePanel({ device, state }: { device: Device; state: DeviceState | und
 // ----------------------------------------------------------------- light
 
 function LightPanel({ device, state }: { device: Device; state: DeviceState | undefined }) {
-  const online = state?.online === true
+  const connected = useStore((s) => s.connected)
+  const online = state?.online === true && connected
   const on = online && state?.state.power === true
   const busy = useBusy(device.id)
   const dim = device.capabilities.includes('dim')

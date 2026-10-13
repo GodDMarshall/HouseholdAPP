@@ -29,10 +29,13 @@ export function setToken(token: string | null): void {
   }
 }
 
-let onUnauthorized: (() => void) | null = null
-export function setUnauthorizedHandler(fn: () => void): void {
+let onUnauthorized: ((setup: boolean) => void) | null = null
+export function setUnauthorizedHandler(fn: (setup: boolean) => void): void {
   onUnauthorized = fn
 }
+
+/** The three calls that are allowed to answer 401 without ending the session. */
+const SIGN_IN_CALLS = ['/api/auth/status', '/api/auth/setup', '/api/auth/login']
 
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
@@ -55,7 +58,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   }
   if (!res.ok) {
     const err = (data as { error?: string; setup?: boolean }) ?? {}
-    if (res.status === 401 && !url.startsWith('/api/auth/')) onUnauthorized?.()
+    if (res.status === 401 && !SIGN_IN_CALLS.includes(url.split('?')[0] ?? '')) onUnauthorized?.(Boolean(err.setup))
     throw new ApiError(err.error ?? `Request failed (${res.status})`, res.status, Boolean(err.setup))
   }
   return data as T

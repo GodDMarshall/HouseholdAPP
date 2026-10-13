@@ -108,7 +108,7 @@ export class ActionQueue {
     if (needs && !needs.some((c) => device.capabilities.includes(c))) {
       throw new ActionError(`${device.name} cannot ${ACTION_LABELS[req.type].toLowerCase()}`)
     }
-    const params = req.params ?? {}
+    const params = cleanParams(req.type, req.params ?? {})
     const action: Action = {
       id: newId('act'),
       deviceId,
@@ -126,7 +126,6 @@ export class ActionQueue {
     }
     this.insert(action)
     this.deps.bus.emit('action', action)
-    if (isGateMove(req.type)) this.latestGate.set(deviceId, action.id)
     // One command at a time per device, in the order asked. The slot is released
     // as soon as a command has been DELIVERED: a gate that is still travelling
     // must not hold back the Stop (or Close) tapped after it.
@@ -156,6 +155,14 @@ export class ActionQueue {
         : this.deps.db.prepare('SELECT * FROM actions ORDER BY requested_at DESC LIMIT ?').all(limit)
     ) as Row[]
     return rows.map(rowToAction)
+  }
+
+  /** The latest actions, plus every hand-off still waiting for the owner however old it is. */
+  recentWithPending(): Action[] {
+    const recent = this.list({ limit: 50 })
+    const ids = new Set(recent.map((a) => a.id))
+    const pending = (this.deps.db.prepare("SELECT * FROM actions WHERE status = 'needs-confirmation' ORDER BY requested_at DESC LIMIT 100").all() as Row[]).map(rowToAction)
+    return [...recent, ...pending.filter((a) => !ids.has(a.id))]
   }
 
   /** The owner tells us how a hand-off (SMS from the phone) went. */
@@ -302,12 +309,18 @@ export class ActionQueue {
       if (typeof result.state.brightness === 'number') echo.brightness = result.state.brightness
       if (Object.keys(echo).length) result = { ...result, result: { ...echo, ...(result.result ?? {}) } }
     }
+    if (result.ok && isGateMove(action.type)) this.latestGate.set(device.id, action.id)
     if (result.ok && !result.needsConfirmation && isGateMove(action.type) && device.capabilities.includes('gate-state') && live.kind !== 'sms') {
       // Delivered. Let the next command through (Stop!) while we watch the gate.
       release()
-      const final = await this.settleGate(device, action)
+      const settled = await this.settleGate(device, action)
+      const final = settled.final
       const superseded = this.latestGate.get(device.id) !== action.id
       result = { ...result, result: { ...(result.result ?? {}), gate: final, ...(superseded ? { superseded: true } : {}) } }
+      if (settled.removed) return { result: { ok: false, error: `${device.name} was removed while the gate was moving` }, pathId: live.id }
+      if (settled.lost && !superseded) {
+        return { result: { ...result, ok: false, error: 'The gate stopped answering after the command, so its position is unknown' }, pathId: live.id }
+      }
       const goal = action.type === 'gate.open' ? 'open' : action.type === 'gate.close' ? 'closed' : null
       if (goal && final !== goal && !superseded && (final === 'open' || final === 'closed' || final === 'stopped')) {
         // A definite reading that is not what was asked for: say so, do not call it done.
@@ -327,20 +340,27 @@ export class ActionQueue {
    * "open" until it is shut), so it only counts once the gate has clearly had
    * time to move, or after it was seen moving.
    */
-  private async settleGate(device: Device, action: Action): Promise<GateState> {
+  private async settleGate(device: Device, action: Action): Promise<{ final: GateState; lost: boolean; removed: boolean }> {
     const type = action.type
     const goal: GateState | null = type === 'gate.open' ? 'open' : type === 'gate.close' ? 'closed' : null
     const started = Date.now()
     let last: GateState = 'unknown'
     let sawMoving = false
+    let silent = 0
     const settleMs = this.deps.config.gateSettleSec * 1000
     const noMoveMs = this.deps.config.gateNoMoveSec * 1000
+    const out = (final: GateState, lost = false) => ({ final, lost, removed: false })
     while (Date.now() - started < settleMs) {
       await sleep(1000)
+      if (!this.deps.registry.getDevice(device.id)) return { final: last, lost: false, removed: true }
       try {
         const state = await this.deps.devices.refreshState(device.id)
         last = (state.gate as GateState | undefined) ?? 'unknown'
+        silent = 0
       } catch {
+        // A gate that cannot be read for a while will not tell us anything more.
+        silent += 1
+        if (silent >= 8) return out('unknown', true)
         continue
       }
       const elapsed = Date.now() - started
@@ -348,19 +368,19 @@ export class ActionQueue {
       if (moving) sawMoving = true
       const terminal = last === 'open' || last === 'closed' || last === 'stopped'
       if (!terminal) continue
-      if (last === 'stopped') return last
+      if (last === 'stopped') return out(last)
       if (goal) {
-        if (last === goal) return last
+        if (last === goal) return out(last)
         // A later command took over (Stop, or Close after Open): this one will never reach its goal.
-        if (this.latestGate.get(device.id) !== action.id) return last
+        if (this.latestGate.get(device.id) !== action.id) return out(last)
         // It moved and came to rest somewhere else, or it never moved at all.
-        if (sawMoving || elapsed >= noMoveMs) return last
+        if (sawMoving || elapsed >= noMoveMs) return out(last)
         continue
       }
       // Stop / pulse have no target position: report where the gate came to rest.
-      if (type === 'gate.stop' || sawMoving || elapsed >= 5000) return last
+      if (type === 'gate.stop' || sawMoving || elapsed >= 5000) return out(last)
     }
-    return last
+    return out(last)
   }
 
   private async liveContext(device: Device): Promise<{ ctx: ReturnType<DeviceManager['context']>; path: ConnectionPath }> {
@@ -445,9 +465,15 @@ export class ActionQueue {
 
   /** Anything left "running" by a crash is marked failed so the app is not stuck. */
   private failInterrupted(): void {
+    const stuck = this.deps.db.prepare("SELECT * FROM actions WHERE status IN ('queued', 'running')").all() as Row[]
+    if (stuck.length === 0) return
     this.deps.db
       .prepare(`UPDATE actions SET status = 'failed', finished_at = ?, error = 'The hub restarted before this finished' WHERE status IN ('queued', 'running')`)
       .run(nowIso())
+    for (const row of stuck) {
+      const a = rowToAction(row)
+      this.deps.events.record({ deviceId: a.deviceId, level: 'warn', type: 'action.interrupted', message: `${this.deviceName(a.deviceId)}: ${a.label} was cut off by a hub restart. Check the device and try again.`, data: { actionId: a.id } })
+    }
   }
 
   private pruneSnapshots(): void {
@@ -456,6 +482,88 @@ export class ActionQueue {
       .map((f) => ({ f, t: fs.statSync(path.join(this.snapshotDir, f)).mtimeMs }))
       .sort((a, b) => b.t - a.t)
     for (const { f } of files.slice(SNAPSHOTS_KEPT)) fs.rmSync(path.join(this.snapshotDir, f), { force: true })
+  }
+}
+
+const PARAMS_MAX_BYTES = 4096
+
+/**
+ * Only well-formed parameters reach a device. Everything else is answered
+ * before anything is queued, in words an owner can act on.
+ */
+export function cleanParams(type: ActionType, raw: Record<string, unknown>): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ActionError('The command details were not understood')
+  let size = 0
+  try {
+    size = JSON.stringify(raw).length
+  } catch {
+    throw new ActionError('The command details were not understood')
+  }
+  if (size > PARAMS_MAX_BYTES) throw new ActionError('The command details are too long')
+  const num = (key: string, lo: number, hi: number, fallback?: number): number | undefined => {
+    const v = raw[key]
+    if (v === undefined || v === null || v === '') {
+      if (fallback === undefined) throw new ActionError(`${key} is missing`)
+      return fallback
+    }
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+    if (!Number.isFinite(n)) throw new ActionError(`${key} must be a number`)
+    if (n < lo || n > hi) throw new ActionError(`${key} must be between ${lo} and ${hi}`)
+    return n
+  }
+  const text = (key: string, max: number, required: boolean): string | undefined => {
+    const v = raw[key]
+    if (v === undefined || v === null || v === '') {
+      if (required) throw new ActionError(`${key} is missing`)
+      return undefined
+    }
+    if (typeof v !== 'string') throw new ActionError(`${key} must be text`)
+    if (v.length > max) throw new ActionError(`${key} is too long (${max} characters at most)`)
+    return v
+  }
+  switch (type) {
+    case 'dim.set':
+      return { brightness: Math.round(num('brightness', 0, 100)!) }
+    case 'color.set': {
+      const hex = text('hex', 9, false)
+      const temperature = raw.temperature === undefined ? undefined : num('temperature', 1000, 10000)
+      if (hex !== undefined && !/^#?[0-9a-fA-F]{6}$/.test(hex)) throw new ActionError('hex must be a colour like #ff8800')
+      if (hex === undefined && temperature === undefined) throw new ActionError('Give a colour (hex) or a temperature')
+      return { ...(hex !== undefined ? { hex: hex.startsWith('#') ? hex : '#' + hex } : {}), ...(temperature !== undefined ? { temperature } : {}) }
+    }
+    case 'ptz.move': {
+      const seconds = raw.seconds === undefined ? undefined : num('seconds', 0, 60)
+      return { pan: num('pan', -1, 1, 0), tilt: num('tilt', -1, 1, 0), zoom: num('zoom', -1, 1, 0), ...(seconds !== undefined ? { seconds } : {}) }
+    }
+    case 'ptz.preset': {
+      const v = raw.preset
+      if (typeof v === 'number' && Number.isFinite(v)) return { preset: v }
+      if (typeof v === 'string' && v.trim() && v.length <= 64) return { preset: v.trim() }
+      throw new ActionError('preset must be a name or a number')
+    }
+    case 'wifi.set': {
+      // Only a stored network: a password typed into a command would end up in the history.
+      const id = text('wifiNetworkId', 64, true)!
+      return { wifiNetworkId: id }
+    }
+    case 'path.switch': {
+      const id = raw.pathId
+      if (id === null || id === undefined || id === '') return { pathId: null }
+      if (typeof id !== 'string' || id.length > 64) throw new ActionError('pathId must be a connection id')
+      return { pathId: id }
+    }
+    case 'probe': {
+      const id = text('pathId', 64, false)
+      return id ? { pathId: id } : {}
+    }
+    case 'sms.send':
+      return { text: text('text', 500, true)!.trim() || (() => {
+          throw new ActionError('Give the text to send')
+        })() }
+    case 'custom':
+      return { ...raw }
+    default:
+      return {}
   }
 }
 

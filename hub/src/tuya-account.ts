@@ -142,6 +142,7 @@ export class TuyaAccount {
         throw new ValidationError('The hub has not heard any Smart Life device yet. Switch one on, on the same WiFi as the hub, and scan again. Or type the Device ID of one device.')
       }
       let lastError = ''
+      let lastErrorKind: 'network' | 'refused' | 'other' = 'other'
       for (const id of known) {
         try {
           const detail = (await tuyaCloudCall(cred, 'GET', `/v1.0/devices/${encodeURIComponent(id)}`)) as CloudDevice
@@ -151,10 +152,14 @@ export class TuyaAccount {
           }
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err)
+          // 1106 permission deny / 1100 or 2017 unknown device: the device is simply not in this project.
+          lastErrorKind = !(err instanceof TuyaApiError) ? 'network' : [1106, 1100, 2017, 2006].includes(err.code) ? 'other' : 'refused'
           this.log.debug(`tuya: device ${id.slice(0, 6)}… not in this account: ${lastError}`)
         }
       }
       if (!this.uid) {
+        if (lastErrorKind === 'network') throw new ValidationError(`Could not reach Tuya: ${lastError}. Check the hub's internet connection and try again.`)
+        if (lastErrorKind === 'refused') throw new ValidationError(`Tuya refused the request: ${lastError}. If the project's free plan has run out, renew it at iot.tuya.com.`)
         throw new ValidationError(
           `None of the Smart Life devices the hub knows belongs to the linked project. In the Tuya project open Devices, Link App Account, and scan the code with the Smart Life app.${lastError ? ' Tuya said: ' + lastError : ''}`,
         )
@@ -199,14 +204,27 @@ export class TuyaAccount {
     for (const d of lan) if (typeof d.config.deviceId === 'string') lanById.set(d.config.deviceId, d)
     const existing = this.registryIds()
     const added: Device[] = []
-    for (const req of requests) {
+    const done = new Set<string>()
+    try {
+      for (const req of requests) this.importOne(req, s, lanById, existing, done, added)
+    } catch (err) {
+      // All or nothing: what this call added is taken out again, so the owner can fix the cause and try once more.
+      for (const d of added) this.registry.deleteDevice(d.id)
+      throw err
+    }
+    return added
+  }
+
+  private importOne(req: ImportRequest, s: Stored, lanById: Map<string, DiscoveredDevice>, existing: Map<string, string>, done: Set<string>, added: Device[]): void {
+    {
       const dev = this.cache.get(req.id)
       if (!dev) throw new ValidationError('That device is not in the list any more. Load the list again.')
-      if (existing.has(req.id)) continue
+      if (existing.has(req.id) || done.has(req.id)) return
+      done.add(req.id)
       const cat = CATEGORIES[dev.category ?? '']
       if (cat && !cat.supported) throw new ValidationError(`${dev.name ?? 'That device'} is a ${cat.label.toLowerCase()}, which this version cannot drive yet`)
       const kind: DeviceKind = req.kind ?? cat?.kind ?? 'switch'
-      const name = (req.name ?? dev.name ?? dev.product_name ?? 'Smart Life device').trim()
+      const name = (req.name?.trim() || dev.name?.trim() || dev.product_name?.trim() || 'Smart Life device').slice(0, 60)
       const onLan = lanById.get(req.id)
       const opener = dev.category === 'ckmkzq'
       if (onLan && dev.local_key) {
@@ -249,7 +267,6 @@ export class TuyaAccount {
         )
       }
     }
-    return added
   }
 
   /** The local key of an account device, for a device added by hand from a scan result. */

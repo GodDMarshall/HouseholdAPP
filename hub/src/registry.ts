@@ -23,6 +23,19 @@ export class ValidationError extends Error {
   }
 }
 
+/** An id that does not exist: the API answers 404, so every verb says the same thing. */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+/** Limits that keep a typo from becoming a problem. */
+const NAME_MAX = 60
+const ROOM_MAX = 40
+const CONFIG_MAX_BYTES = 16 * 1024
+const SORT_MAX = 1_000_000
+
 export interface WifiSecret {
   id: string
   ssid: string
@@ -84,19 +97,21 @@ export class Registry {
 
   updateDevice(id: string, input: Partial<DeviceInput>): Device {
     const existing = this.db.prepare('SELECT * FROM devices WHERE id = ?').get(id) as Row | undefined
-    if (!existing) throw new ValidationError('Device not found')
+    if (!existing) throw new NotFoundError('Device not found')
+    const familyChanged = input.family !== undefined && input.family !== existing.family
     const merged: DeviceInput = {
       name: input.name ?? String(existing.name),
       kind: input.kind ?? (existing.kind as DeviceInput['kind']),
       family: input.family ?? (existing.family as DeviceInput['family']),
       room: input.room ?? String(existing.room),
-      config: input.config ?? this.decryptConfig(String(existing.family), parseJson(existing.config as string, {})),
+      // Settings belong to a family: a different family starts from what was sent for it, never from the old secrets.
+      config: familyChanged ? (input.config ?? {}) : (input.config ?? this.decryptConfig(String(existing.family), parseJson(existing.config as string, {}))),
       paths: input.paths ?? this.listPaths(id).map(pathToInput),
       sort: input.sort ?? Number(existing.sort),
       notify: input.notify ?? (existing.notify as DeviceInput['notify']),
     }
     const clean = this.validateDevice(merged)
-    const previous = parseJson<Record<string, unknown>>(existing.config as string, {})
+    const previous = familyChanged ? {} : parseJson<Record<string, unknown>>(existing.config as string, {})
     const storedConfig = this.encryptSecrets(clean.family, clean.config, previous)
     const ts = nowIso()
     this.db.exec('BEGIN;')
@@ -153,6 +168,7 @@ export class Registry {
 
   private replacePaths(deviceId: string, paths: PathInput[]): void {
     const keep = new Set<string>()
+    const mine = new Set((this.db.prepare('SELECT id FROM paths WHERE device_id = ?').all(deviceId) as { id: string }[]).map((r) => r.id))
     const upsert = this.db.prepare(
       `INSERT INTO paths (id, device_id, priority, kind, label, wifi_network_id, host, port, extra, enabled)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -160,7 +176,8 @@ export class Registry {
          wifi_network_id = excluded.wifi_network_id, host = excluded.host, port = excluded.port, extra = excluded.extra, enabled = excluded.enabled`,
     )
     paths.forEach((p, i) => {
-      const id = p.id && p.id.startsWith('pth_') ? p.id : newId('pth')
+      // An id is only an identity for a connection this device already has; anything else is a new connection.
+      const id = p.id && mine.has(p.id) && !keep.has(p.id) ? p.id : newId('pth')
       keep.add(id)
       upsert.run(
         id,
@@ -202,6 +219,8 @@ export class Registry {
   createWifi(input: WifiNetworkInput): WifiNetwork {
     const ssid = (input.ssid ?? '').trim()
     if (!ssid) throw new ValidationError('The network name (SSID) is required')
+    if (ssid.length > 32) throw new ValidationError('A WiFi name has 32 characters at most')
+    if (typeof input.password === 'string' && input.password.length > 64) throw new ValidationError('A WiFi password has 64 characters at most')
     if (this.findWifiBySsid(ssid)) throw new ValidationError(`"${ssid}" is already in the list`)
     const id = newId('wifi')
     const password = input.password && input.password !== SECRET_MASK ? input.password : ''
@@ -214,7 +233,7 @@ export class Registry {
 
   updateWifi(id: string, input: WifiNetworkInput): WifiNetwork {
     const row = this.db.prepare('SELECT * FROM wifi_networks WHERE id = ?').get(id) as Row | undefined
-    if (!row) throw new ValidationError('WiFi network not found')
+    if (!row) throw new NotFoundError('WiFi network not found')
     const ssid = (input.ssid ?? String(row.ssid)).trim()
     if (!ssid) throw new ValidationError('The network name (SSID) is required')
     const clash = this.findWifiBySsid(ssid)
@@ -247,13 +266,31 @@ export class Registry {
   // --------------------------------------------------------------- internals
 
   private nextSort(): number {
-    const row = this.db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS next FROM devices').get() as { next: number }
-    return Number(row.next)
+    // Read the top position as a REAL: an odd value left by an old build or a hand edit
+    // must never throw (an INTEGER past 2^53 does) and must never block the next add.
+    let top = -1
+    try {
+      const row = this.db.prepare('SELECT MAX(CAST(sort AS REAL)) AS top FROM devices').get() as { top: number | null }
+      if (typeof row.top === 'number' && Number.isFinite(row.top)) top = row.top
+    } catch {
+      top = Number.NaN
+    }
+    const next = top + 1
+    return Number.isSafeInteger(next) && next >= 0 && next <= SORT_MAX ? next : this.listDevices().length
+  }
+
+  /** Check a device as the form would save it, without saving. Used by "Test the connections". */
+  validate(input: DeviceInput): DeviceInput {
+    return this.validateDevice(input)
   }
 
   private validateDevice(input: DeviceInput): DeviceInput {
     const name = (input.name ?? '').trim()
     if (!name) throw new ValidationError('Give the device a name')
+    if (name.length > NAME_MAX) throw new ValidationError(`The name is too long (${NAME_MAX} characters at most)`)
+    const room = (input.room ?? '').trim()
+    if (room.length > ROOM_MAX) throw new ValidationError(`The place name is too long (${ROOM_MAX} characters at most)`)
+    if (input.sort !== undefined && (!Number.isInteger(input.sort) || input.sort < 0 || input.sort > SORT_MAX)) throw new ValidationError('Bad position for this device')
     if (!DEVICE_KINDS.includes(input.kind)) throw new ValidationError(`Unknown device kind "${String(input.kind)}"`)
     if (input.notify !== undefined && !NOTIFY_LEVELS.includes(input.notify)) throw new ValidationError(`Unknown notification level "${String(input.notify)}"`)
     let adapter
@@ -267,14 +304,24 @@ export class Registry {
       throw new ValidationError(`${desc.label} cannot be a ${input.kind}`)
     }
     const config: Record<string, unknown> = { ...(input.config ?? {}) }
+    let bytes = 0
+    try {
+      bytes = JSON.stringify(config).length
+    } catch {
+      throw new ValidationError('The settings could not be read')
+    }
+    if (bytes > CONFIG_MAX_BYTES || depthOf(config) > 4) throw new ValidationError('The settings are too large')
     for (const f of desc.fields) {
       const v = config[f.name]
       const empty = v === undefined || v === null || v === ''
-      if (f.required && empty && f.default === undefined) {
-        if (!f.showWhen || config[f.showWhen.field] === f.showWhen.equals) throw new ValidationError(`${f.label} is required`)
-      }
+      const shown = !f.showWhen || config[f.showWhen.field] === f.showWhen.equals
+      if (f.required && empty && f.default === undefined && shown) throw new ValidationError(`${f.label} is required`)
       if (empty && f.default !== undefined) config[f.name] = f.default
-      if (f.type === 'number' && !empty && !Number.isFinite(Number(v))) throw new ValidationError(`${f.label} must be a number`)
+      if (empty) continue
+      if (f.type === 'number' && !Number.isFinite(Number(v))) throw new ValidationError(`${f.label} must be a number`)
+      if ((f.type === 'text' || f.type === 'password' || f.type === 'textarea') && typeof v !== 'string') throw new ValidationError(`${f.label} must be text`)
+      if (f.type === 'select' && f.options && !f.options.some((o) => o.value === String(v))) throw new ValidationError(`${f.label}: "${String(v).slice(0, 40)}" is not one of the choices`)
+      if (f.type === 'toggle' && typeof v !== 'boolean' && v !== 'true' && v !== 'false') throw new ValidationError(`${f.label} must be on or off`)
     }
     const paths = (input.paths ?? []).map((p, i) => {
       if (!PATH_KINDS.includes(p.kind)) throw new ValidationError(`Unknown path kind "${String(p.kind)}"`)
@@ -284,9 +331,14 @@ export class Registry {
       if (p.port !== undefined && p.port !== null && (!Number.isInteger(p.port) || p.port < 1 || p.port > 65535)) {
         throw new ValidationError('Port must be between 1 and 65535')
       }
-      return { ...p, label, priority: i, port: p.port ?? (p.kind === 'lan' || p.kind === 'cellular' ? desc.defaultPort : null) }
+      if (typeof p.host === 'string' && p.host.length > 253) throw new ValidationError('The address is too long')
+      if (label.length > NAME_MAX) throw new ValidationError('A connection name is too long')
+      // A WiFi network that no longer exists (deleted on another phone) simply means "wired / not a stored WiFi".
+      const wifiNetworkId = p.kind === 'lan' && p.wifiNetworkId && this.db.prepare('SELECT 1 FROM wifi_networks WHERE id = ?').get(p.wifiNetworkId) ? p.wifiNetworkId : null
+      return { ...p, label, priority: i, wifiNetworkId, extra: p.extra && typeof p.extra === 'object' ? p.extra : {}, port: p.port ?? (p.kind === 'lan' || p.kind === 'cellular' ? desc.defaultPort : null) }
     })
-    return { ...input, name, room: (input.room ?? '').trim(), config, paths }
+    if (paths.length > 12) throw new ValidationError('A device can have twelve connections at most')
+    return { ...input, name, room, config, paths }
   }
 
   private secretFields(family: string): FieldSpec[] {
@@ -356,6 +408,13 @@ export class Registry {
 }
 
 type Row = Record<string, unknown>
+
+function depthOf(v: unknown, d = 0): number {
+  if (!v || typeof v !== 'object') return d
+  let max = d + 1
+  for (const x of Object.values(v as Record<string, unknown>)) max = Math.max(max, depthOf(x, d + 1))
+  return max
+}
 
 function rowToPath(r: Row): ConnectionPath {
   return {

@@ -27,7 +27,8 @@ function open(): void {
   if (!wanted || !token) return
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`)
+  // The token travels as a sub-protocol, never in the address.
+  const ws = new WebSocket(`${proto}://${location.host}/ws`, ['hc-token', token])
   socket = ws
   ws.onopen = () => {
     retry = 0

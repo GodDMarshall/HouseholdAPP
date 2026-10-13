@@ -11,6 +11,7 @@ setLogLevel('error')
 
 export interface TestHub {
   hub: Hub
+  config: Config
   dir: string
   events: EventRecord[]
   pushes: Array<{ title: string; body: string }>
@@ -65,6 +66,7 @@ export async function makeHub(overrides: Partial<Config> = {}): Promise<TestHub>
 
   return {
     hub,
+    config,
     dir,
     events,
     pushes,

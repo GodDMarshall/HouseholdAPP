@@ -5,6 +5,7 @@ import type { HubStatus } from '@house/shared'
 import { nowIso, type DB } from './db.ts'
 import { newId } from './ids.ts'
 import type { Logger } from './lib/log.ts'
+import { ValidationError } from './registry.ts'
 
 export interface PushPayload {
   title: string
@@ -57,7 +58,11 @@ export class Notifier {
   }
 
   subscribe(subscription: webpush.PushSubscription, label = ''): void {
-    if (!subscription?.endpoint) throw new Error('Invalid push subscription')
+    const endpoint = subscription?.endpoint ?? ''
+    const keys = subscription?.keys as { p256dh?: string; auth?: string } | undefined
+    if (!/^https:\/\/\S+$/.test(endpoint) || !keys?.p256dh || !keys?.auth) {
+      throw new ValidationError('That phone did not give a usable notification address. Turn notifications off and on again.')
+    }
     this.db
       .prepare(
         `INSERT INTO push_subscriptions (id, endpoint, subscription, label, created_at) VALUES (?, ?, ?, ?, ?)

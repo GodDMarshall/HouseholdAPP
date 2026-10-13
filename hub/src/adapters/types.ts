@@ -147,7 +147,11 @@ export async function tcpProbe(host: string, port: number, timeoutMs: number): P
             ? `${host}:${port} refused the connection`
             : err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH'
               ? `${host} is not reachable from this network`
-              : err.message,
+              : err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN'
+                ? `${host} could not be found. Check the address.`
+                : err.code === 'ECONNRESET'
+                  ? `${host}:${port} closed the connection`
+                  : err.message,
       }),
     )
   })

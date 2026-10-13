@@ -18,8 +18,34 @@ export class AuthError extends Error {
 export class Auth {
   private failures = 0
   private lockedUntil = 0
+  private listeners = new Set<(hash: string | null, keep: string | null) => void>()
 
-  constructor(private readonly db: DB) {}
+  constructor(private readonly db: DB) {
+    // The wrong-PIN lock survives a restart; restarting the hub is not a way round it.
+    const raw = getSetting(db, 'pin_lock')
+    if (raw) {
+      try {
+        const o = JSON.parse(raw) as { failures?: number; lockedUntil?: number }
+        this.failures = Number(o.failures) || 0
+        this.lockedUntil = Number(o.lockedUntil) || 0
+      } catch {
+        /* ignore a damaged value */
+      }
+    }
+  }
+
+  /** Told whenever sessions end: one token's hash, or null for all of them except `keep`. Live channels close on it. */
+  onRevoke(fn: (hash: string | null, keep: string | null) => void): void {
+    this.listeners.add(fn)
+  }
+
+  private announce(hash: string | null, keep: string | null): void {
+    for (const fn of this.listeners) fn(hash, keep)
+  }
+
+  private saveLock(): void {
+    setSetting(this.db, 'pin_lock', JSON.stringify({ failures: this.failures, lockedUntil: this.lockedUntil }))
+  }
 
   isConfigured(): boolean {
     return getSetting(this.db, 'pin_hash') !== null
@@ -45,9 +71,12 @@ export class Auth {
     if (!stored) throw new AuthError('No PIN set yet', 409)
     this.checkPin(current, stored, 'Current PIN is wrong')
     validatePin(next)
+    if (next === current) throw new AuthError('That is already the PIN', 400)
     setSetting(this.db, 'pin_hash', hashPin(next))
-    if (keepToken) this.db.prepare('DELETE FROM sessions WHERE token_hash <> ?').run(sha256(keepToken))
+    const keep = keepToken ? sha256(keepToken) : null
+    if (keep) this.db.prepare('DELETE FROM sessions WHERE token_hash <> ?').run(keep)
     else this.db.prepare('DELETE FROM sessions').run()
+    this.announce(null, keep)
   }
 
   verify(token: string | undefined | null): boolean {
@@ -59,11 +88,14 @@ export class Auth {
   }
 
   revoke(token: string): void {
-    this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token))
+    const hash = sha256(token)
+    this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash)
+    this.announce(hash, null)
   }
 
   revokeAll(): void {
     this.db.prepare('DELETE FROM sessions').run()
+    this.announce(null, null)
   }
 
   sessions(): { label: string; createdAt: string; lastUsedAt: string }[] {
@@ -82,10 +114,14 @@ export class Auth {
       if (this.failures >= 5) {
         this.lockedUntil = now + Math.min(15 * 60_000, 30_000 * 2 ** (this.failures - 5))
       }
+      this.saveLock()
       throw new AuthError(wrongMessage, 401)
     }
-    this.failures = 0
-    this.lockedUntil = 0
+    if (this.failures || this.lockedUntil) {
+      this.failures = 0
+      this.lockedUntil = 0
+      this.saveLock()
+    }
   }
 
   private issue(label: string): string {

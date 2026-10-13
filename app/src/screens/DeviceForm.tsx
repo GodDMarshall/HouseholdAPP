@@ -74,6 +74,7 @@ export function DeviceForm({ id }: { id?: string }) {
   const wifi = useStore((s) => s.wifi)
   const devices = useStore((s) => s.devices)
   const toast = useStore((s) => s.toast)
+  const connected = useStore((s) => s.connected)
 
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<Draft>({ name: '', kind: 'camera', family: '', room: '', config: {}, paths: [], notify: 'important' })
@@ -105,9 +106,17 @@ export function DeviceForm({ id }: { id?: string }) {
   }
   useEffect(() => {
     if (editing) return
+    // After a reload the history may still hold later steps, but the form is empty: start from the first step.
+    if (typeof (history.state as { hcStep?: number } | null)?.hcStep === 'number') history.replaceState({ hc: (history.state as { hc?: number }).hc ?? 0 }, '', location.pathname)
     const onPop = (e: PopStateEvent) => {
       const st = (e.state as { hcStep?: number } | null)?.hcStep
-      setStep(typeof st === 'number' ? st : 0)
+      const wanted = typeof st === 'number' ? st : 0
+      // Never land on a step the form cannot show yet.
+      setDraft((d) => {
+        const reachable = !d.family ? 1 : !d.name.trim() ? 2 : d.paths.length === 0 ? 3 : 4
+        setStep(Math.min(wanted, reachable))
+        return d
+      })
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -207,7 +216,16 @@ export function DeviceForm({ id }: { id?: string }) {
         <TopBar title="Edit device" onBack={() => back(id ? `/device/${id}` : '/')} />
         <main className="content">
           <div className="empty">
-            <div className="spinner" style={{ margin: '0 auto' }} />
+            {connected && !existing ? (
+              <>
+                <h2>This device is not in the house any more</h2>
+                <button className="btn primary" style={{ marginTop: 16 }} onClick={() => navigate('/', true)}>
+                  Back to the house
+                </button>
+              </>
+            ) : (
+              <div className="spinner" style={{ margin: '0 auto' }} />
+            )}
           </div>
         </main>
       </>

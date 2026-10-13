@@ -18,7 +18,9 @@ import type { TuyaAccount } from './tuya-account.ts'
 import { withTimeout } from './lib/http.ts'
 import type { Logger } from './lib/log.ts'
 import type { Notifier } from './notify.ts'
-import { Registry, ValidationError } from './registry.ts'
+import { NotFoundError, Registry, ValidationError } from './registry.ts'
+import type { WifiMover } from './wifi.ts'
+import { trackSocket, wsToken } from './ws.ts'
 import { SEED_WIFI_PASSWORD_PREFIX } from './seed.ts'
 import { grabSnapshot } from './snapshot.ts'
 import type { VideoManager } from './video.ts'
@@ -34,6 +36,7 @@ export interface ApiDeps {
   video: VideoManager
   discovery: Discovery
   tuya: TuyaAccount
+  wifi: WifiMover
   bus: Bus
   status: () => HubStatus
   log: Logger
@@ -68,11 +71,33 @@ const deviceInput = z.object({
 })
 
 const actionInput = z.object({ type: z.string(), params: z.record(z.unknown()).optional() })
+const LIMIT = z.coerce.number().int().min(1).max(500).optional()
+
+/** A validation message an owner can act on, instead of the validator's own wording. */
+function plainIssue(issue: z.ZodIssue): string {
+  const field = issue.path.filter((p) => typeof p === 'string').join(' ')
+  const name = (field || 'the request').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
+  const kind = (t: string) => ({ string: 'text', number: 'a number', boolean: 'on or off', object: 'a set of settings', array: 'a list', integer: 'a whole number' })[t] ?? t
+  switch (issue.code) {
+    case 'invalid_type':
+      return issue.received === 'undefined' ? `${name} is missing` : `${name} must be ${kind(issue.expected)}`
+    case 'too_big':
+      return issue.type === 'string' ? `${name} is too long (${issue.maximum} characters at most)` : `${name} is too large (${issue.maximum} at most)`
+    case 'too_small':
+      return issue.type === 'string' ? (issue.minimum === 1 ? `${name} is required` : `${name} is too short`) : `${name} is too small (${issue.minimum} at least)`
+    case 'invalid_enum_value':
+      return `${name} is not one of the choices`
+    case 'invalid_string':
+      return `${name} is not in the right form`
+    default:
+      return issue.message === 'Expected integer, received float' ? `${name} must be a whole number` : `${name}: ${issue.message}`
+  }
+}
 
 const wifiInput = z.object({ ssid: z.string(), password: z.string().optional(), notes: z.string().optional() })
 
 export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
-  const { registry, devices, actions, events, notifier, auth, video, discovery, tuya, bus, config, log } = deps
+  const { registry, devices, actions, events, notifier, auth, video, discovery, tuya, wifi, bus, config, log } = deps
 
   /** Mark scan results that are already in the house, by address or by Tuya device id. */
   const annotate = (list: DiscoveredDevice[]): DiscoveredDevice[] => {
@@ -97,7 +122,8 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // URL: the router decodes percent-escapes before matching, so "/%61pi/devices"
   // reaches /api/devices. The raw test stays as a second trigger so unknown
   // /api paths answer 401 instead of falling through to the app shell.
-  const guarded = (s: string) => s.startsWith('/api') || s.startsWith('/video') || s === '/ws'
+  // The two WebSocket routes check the token themselves, so a bad token closes the socket with a code the app understands.
+  const guarded = (s: string) => (s.startsWith('/api') || s.startsWith('/video')) && s !== '/video/api/ws'
   app.addHook('onRequest', async (req, reply) => {
     const route = req.routeOptions?.url ?? ''
     const raw = req.url.split('?')[0] ?? ''
@@ -110,8 +136,11 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
 
   app.setErrorHandler((err: Error & { status?: number; statusCode?: number; validation?: unknown }, req, reply) => {
     if (err instanceof z.ZodError) {
-      const first = err.issues[0]
-      reply.code(400).send({ error: first ? `${first.path.join('.') || 'input'}: ${first.message}` : 'Invalid input' })
+      reply.code(400).send({ error: err.issues[0] ? plainIssue(err.issues[0]) : 'Something in the request was not understood' })
+      return
+    }
+    if (err instanceof NotFoundError) {
+      reply.code(404).send({ error: err.message })
       return
     }
     if (err instanceof ValidationError || err instanceof ActionError || err instanceof AuthError) {
@@ -119,7 +148,8 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       return
     }
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500
-    if (status >= 500) log.error(`${req.method} ${req.url} failed`, err)
+    // A token given in the address must not end up in the log.
+    if (status >= 500) log.error(`${req.method} ${req.url.replace(/([?&]token=)[^&]*/g, '$1***')} failed`, err)
     reply.code(status).send({ error: status >= 500 ? 'Something went wrong on the hub' : err.message })
   })
 
@@ -152,7 +182,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   app.get('/api/hub/status', async () => deps.status())
   app.get('/api/families', async () => familyDescriptors())
   app.get('/api/discover', async (req) => {
-    const q = z.object({ seconds: z.coerce.number().min(1).max(15).optional() }).parse(req.query)
+    const q = z.object({ seconds: z.coerce.number().int().min(1).max(15).optional() }).parse(req.query)
     return runScan(q.seconds ?? 8)
   })
   /** "I know its address": what is there? */
@@ -198,7 +228,9 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const body = z
       .object({ devices: z.array(z.object({ id: z.string(), kind: z.enum(DEVICE_KINDS as [string, ...string[]]).optional(), name: z.string().optional(), room: z.string().optional() })).min(1) })
       .parse(req.body)
-    const added = tuya.importDevices(body.devices as Parameters<TuyaAccount['importDevices']>[0], lastScan)
+    const seen = new Set<string>()
+    const wanted = body.devices.filter((d) => !seen.has(d.id) && seen.add(d.id))
+    const added = tuya.importDevices(wanted as Parameters<TuyaAccount['importDevices']>[0], lastScan)
     reply.code(201)
     return added
   })
@@ -221,6 +253,8 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   /** Try every path of a device as typed in the form, before saving it. */
   app.post('/api/devices/test', async (req) => {
     const body = deviceInput.extend({ id: z.string().optional() }).parse(req.body)
+    // The same checks as Save, so a test cannot pass on something Save would refuse.
+    registry.validate(body as Parameters<Registry['validate']>[0])
     const adapter = getAdapter(body.family)
     const config: Record<string, unknown> = { ...body.config }
     if (body.id) {
@@ -256,7 +290,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       temp.paths.map(async (p) => {
         const started = Date.now()
         try {
-          const r = await withTimeout(adapter.probe(devices.context(temp, p)), config.timeoutMs ? Number(config.timeoutMs) : deps.config.deviceTimeoutMs + 500, `Checking ${p.label}`)
+          const r = await withTimeout(adapter.probe(devices.context(temp, p)), deps.config.deviceTimeoutMs + 500, `Checking ${p.label}`)
           return { pathId: p.id, label: p.label, ok: r.ok, latencyMs: r.ok ? r.latencyMs ?? Date.now() - started : null, error: r.error ?? null, info: r.info ?? null, unverifiable: r.unverifiable ?? false }
         } catch (err) {
           return { pathId: p.id, label: p.label, ok: false, latencyMs: null, error: err instanceof Error ? err.message : String(err), info: null, unverifiable: false }
@@ -274,6 +308,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   app.put('/api/devices/:id', async (req) => {
     const { id } = req.params as { id: string }
     const body = deviceInput.partial().parse(req.body)
+    if (wifi.isMoving(id)) throw new ActionError(`${registry.getDevice(id)?.name ?? 'This device'} is moving to another WiFi. Try again in a minute.`, 409)
     return registry.updateDevice(id, body as Parameters<Registry['updateDevice']>[1])
   })
   app.delete('/api/devices/:id', async (req) => {
@@ -284,9 +319,11 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     // Once the last illustrative device is gone, the pretend WiFi networks that
     // came with them go too, unless the owner has made one real by giving it a
     // real password.
-    if (!registry.listDevices().some((d) => d.family === 'virtual')) {
+    const remaining = registry.listDevices()
+    if (!remaining.some((d) => d.family === 'virtual')) {
       for (const w of registry.listWifi()) {
-        if (registry.getWifiSecret(w.id)?.password.startsWith(SEED_WIFI_PASSWORD_PREFIX)) registry.deleteWifi(w.id)
+        const stillUsed = remaining.some((d) => d.paths.some((p) => p.wifiNetworkId === w.id))
+        if (!stillUsed && registry.getWifiSecret(w.id)?.password.startsWith(SEED_WIFI_PASSWORD_PREFIX)) registry.deleteWifi(w.id)
       }
     }
     return { ok: true }
@@ -305,7 +342,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   })
   app.get('/api/devices/:id/actions', async (req) => {
     const { id } = req.params as { id: string }
-    const q = z.object({ limit: z.coerce.number().optional() }).parse(req.query)
+    const q = z.object({ limit: LIMIT }).parse(req.query)
     return actions.list({ deviceId: id, limit: q.limit })
   })
   app.get('/api/devices/:id/snapshot', async (req, reply) => {
@@ -332,7 +369,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // ------------------------------------------------------------- actions
 
   app.get('/api/actions', async (req) => {
-    const q = z.object({ limit: z.coerce.number().optional(), deviceId: z.string().optional() }).parse(req.query)
+    const q = z.object({ limit: LIMIT, deviceId: z.string().optional() }).parse(req.query)
     return actions.list({ deviceId: q.deviceId, limit: q.limit })
   })
   app.get('/api/actions/:id', async (req) => {
@@ -357,7 +394,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // -------------------------------------------------------------- events
 
   app.get('/api/events', async (req) => {
-    const q = z.object({ limit: z.coerce.number().optional(), deviceId: z.string().optional(), before: z.string().optional() }).parse(req.query)
+    const q = z.object({ limit: LIMIT, deviceId: z.string().optional(), before: z.string().optional() }).parse(req.query)
     return events.list({ limit: q.limit, deviceId: q.deviceId, before: q.before })
   })
 
@@ -383,7 +420,12 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // ---------------------------------------------------------------- push
 
   app.post('/api/push/subscribe', async (req) => {
-    const body = z.object({ subscription: z.object({ endpoint: z.string(), keys: z.record(z.string()).optional(), expirationTime: z.number().nullable().optional() }), label: z.string().optional() }).parse(req.body)
+    const body = z
+      .object({
+        subscription: z.object({ endpoint: z.string().max(2048), keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }).passthrough(), expirationTime: z.number().nullable().optional() }),
+        label: z.string().max(80).optional(),
+      })
+      .parse(req.body)
     notifier.subscribe(body.subscription as Parameters<Notifier['subscribe']>[0], body.label ?? describeClient(req))
     return { ok: true, subscriptions: notifier.count() }
   })
@@ -404,11 +446,17 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
 
   app.get('/video/api/ws', { websocket: true }, (socket, req) => {
     const url = new URL(req.url, 'http://hub')
+    const token = wsToken(req)
+    if (!token || !auth.verify(token)) {
+      socket.close(4401, 'Not signed in')
+      return
+    }
     const src = allowedSrc(url.searchParams.get('src'))
     if (!src || video.status.go2rtc !== 'running') {
       socket.close(4404, 'No such stream')
       return
     }
+    const untrack = trackSocket(token, socket)
     const upstream = new WebSocket(`${video.wsBase}/api/ws?src=${encodeURIComponent(src)}`)
     const pending: Array<string | Buffer> = []
     upstream.on('open', () => {
@@ -428,7 +476,10 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
       if (upstream.readyState === WebSocket.OPEN) upstream.send(m)
       else pending.push(m)
     })
-    socket.on('close', () => upstream.close())
+    socket.on('close', () => {
+      untrack()
+      upstream.close()
+    })
   })
 
   for (const endpoint of ['frame.jpeg', 'stream.mp4', 'stream.mjpeg', 'stream.m3u8', 'webrtc']) {
@@ -515,7 +566,8 @@ function proxyStream(req: FastifyRequest, reply: FastifyReply, target: string): 
     if (!reply.raw.headersSent) reply.raw.writeHead(502, { 'content-type': 'application/json' })
     reply.raw.end(JSON.stringify({ error: 'Video service did not answer' }))
   })
-  req.raw.on('close', () => up.destroy())
+  // When the phone goes away the response closes; the request stream closes as soon as its body was read.
+  reply.raw.on('close', () => up.destroy())
   if (req.method === 'POST') {
     const body = req.body
     up.end(typeof body === 'string' ? body : body ? JSON.stringify(body) : undefined)

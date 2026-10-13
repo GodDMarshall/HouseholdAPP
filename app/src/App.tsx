@@ -35,13 +35,21 @@ export default function App() {
   }, [setAuth])
 
   useEffect(() => {
-    setUnauthorizedHandler(() => {
+    setUnauthorizedHandler((setup) => {
       setToken(null)
       disconnectLive()
-      useStore.getState().setAuth('login')
+      // After a PIN reset the hub says so: the next phone chooses the new PIN instead of being asked for one that does not exist.
+      useStore.getState().setAuth(setup ? 'setup' : 'login')
     })
     void boot()
   }, [boot])
+
+  // The hub may simply be starting up: keep trying by itself.
+  useEffect(() => {
+    if (!unreachable) return
+    const t = window.setInterval(() => void boot(), 5000)
+    return () => window.clearInterval(t)
+  }, [unreachable, boot])
 
   if (unreachable) {
     return (

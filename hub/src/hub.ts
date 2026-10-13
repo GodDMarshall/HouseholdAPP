@@ -86,15 +86,22 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
     devices: registry.listDevices(),
     states: devices.listStates(),
     wifi: registry.listWifi(),
-    actions: actions.list({ limit: 50 }),
+    actions: actions.recentWithPending(),
   })
 
-  const app = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024, trustProxy: true })
+  // No automatic HEAD twins: a HEAD on a WebSocket route would run the socket handler with no socket.
+  const app = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024, trustProxy: true, exposeHeadRoutes: false })
   // go2rtc's WebRTC endpoint takes a raw SDP body.
   app.addContentTypeParser('application/sdp', { parseAs: 'string' }, (_req, body, done) => done(null, body))
-  await app.register(fastifyWebsocket, { options: { maxPayload: 4 * 1024 * 1024 } })
+  await app.register(fastifyWebsocket, {
+    options: {
+      maxPayload: 4 * 1024 * 1024,
+      // The app offers "hc-token" as a sub-protocol to carry its token outside the address.
+      handleProtocols: (protocols: Set<string>) => (protocols.has('hc-token') ? 'hc-token' : false),
+    },
+  })
   registerWs(app, { bus, auth, hello, log })
-  registerApi(app, { config, registry, devices, actions, events, notifier, auth, video, discovery, tuya, bus, status, log })
+  registerApi(app, { config, registry, devices, actions, events, notifier, auth, video, discovery, tuya, wifi, bus, status, log })
 
   let housekeeping: NodeJS.Timeout | null = null
 

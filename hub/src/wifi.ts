@@ -28,12 +28,28 @@ const DISCOVER_AT_MS = [15_000, 40_000, 65_000]
  */
 export class WifiMover {
   private readonly log: Logger
+  private moving = new Set<string>()
+
+  /** True while a device is being moved: editing its connections meanwhile would undo the move. */
+  isMoving(deviceId: string): boolean {
+    return this.moving.has(deviceId)
+  }
 
   constructor(private readonly deps: WifiMoverDeps) {
     this.log = deps.log.child('wifi')
   }
 
   async move(deviceId: string, params: { wifiNetworkId?: string; ssid?: string; password?: string }): Promise<ActionResult> {
+    if (this.moving.has(deviceId)) return { ok: false, error: 'This device is already being moved. Wait for that to finish.' }
+    this.moving.add(deviceId)
+    try {
+      return await this.moveNow(deviceId, params)
+    } finally {
+      this.moving.delete(deviceId)
+    }
+  }
+
+  private async moveNow(deviceId: string, params: { wifiNetworkId?: string; ssid?: string; password?: string }): Promise<ActionResult> {
     const { registry, devices } = this.deps
     const device = registry.getDevice(deviceId)
     if (!device) return { ok: false, error: 'Device not found' }

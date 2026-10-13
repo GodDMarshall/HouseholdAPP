@@ -66,7 +66,7 @@ export function WifiScreen() {
         title="WiFi networks"
         sub="The networks of the house"
         right={
-          <button className="iconbtn" onClick={() => (setConfirmRemove(false), setEdit({ id: null, ssid: '', password: '', notes: '' }))} aria-label="Add WiFi network">
+          <button className="iconbtn" onClick={() => (setConfirmRemove(false), setError(null), setEdit({ id: null, ssid: '', password: '', notes: '' }))} aria-label="Add WiFi network">
             <Icon name="plus" />
           </button>
         }
@@ -83,7 +83,7 @@ export function WifiScreen() {
             {wifi.map((w) => {
               const here = onNetwork(w)
               return (
-                <button key={w.id} className="row" onClick={() => (setConfirmRemove(false), setEdit({ id: w.id, ssid: w.ssid, password: w.hasPassword ? SECRET_MASK : '', notes: w.notes }))}>
+                <button key={w.id} className="row" onClick={() => (setConfirmRemove(false), setError(null), setEdit({ id: w.id, ssid: w.ssid, password: w.hasPassword ? SECRET_MASK : '', notes: w.notes }))}>
                   <Icon name="wifi" className="picon" />
                   <span className="grow">
                     <span className="title" style={{ display: 'block' }}>

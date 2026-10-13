@@ -156,16 +156,18 @@ describe('live video', () => {
     await t.hub.app.listen({ port: 0, host: '127.0.0.1' })
     const port = (t.hub.app.server.address() as AddressInfo).port
 
+    // No token: the socket opens and is closed at once with the code the app understands as "sign in".
     const refused = await new Promise<number>((resolve) => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/video/api/ws?src=${cam.id}`)
       ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0))
-      ws.on('open', () => resolve(101))
+      ws.on('close', (code) => resolve(code))
       ws.on('error', () => undefined)
     })
-    expect(refused).toBe(401)
+    expect(refused).toBe(4401)
 
+    // The token travels as a sub-protocol, not in the address.
     const got: Array<string | Buffer> = []
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/video/api/ws?src=${cam.id}&token=${t.token()}`, { origin: `http://127.0.0.1:${port}` })
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/video/api/ws?src=${cam.id}`, ['hc-token', t.token()], { origin: `http://127.0.0.1:${port}` })
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => ws.send(JSON.stringify({ type: 'mse', value: 'avc1.640029' })))
       ws.on('message', (data, isBinary) => {

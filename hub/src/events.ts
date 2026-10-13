@@ -65,7 +65,7 @@ export class EventLog {
   }
 
   list(opts: { limit?: number; deviceId?: string | null; before?: string | null } = {}): EventRecord[] {
-    const limit = Math.min(500, Math.max(1, opts.limit ?? 100))
+    const limit = Math.floor(Math.min(500, Math.max(1, opts.limit ?? 100)))
     const where: string[] = []
     const args: (string | number)[] = []
     if (opts.deviceId) {

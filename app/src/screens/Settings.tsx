@@ -30,7 +30,14 @@ export function SettingsScreen() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [pinError, setPinError] = useState<string | null>(null)
+  const [changing, setChanging] = useState(false)
   const support = pushSupport()
+  const openPinSheet = () => {
+    setCurrent('')
+    setNext('')
+    setPinError(null)
+    setPinSheet(true)
+  }
 
   useEffect(() => {
     void isSubscribed().then(setSubscribed)
@@ -54,6 +61,8 @@ export function SettingsScreen() {
   }
 
   const changePin = async () => {
+    if (changing) return
+    setChanging(true)
     setPinError(null)
     try {
       await api.post('/api/auth/pin', { current, next })
@@ -63,6 +72,8 @@ export function SettingsScreen() {
       setNext('')
     } catch (err) {
       setPinError(err instanceof ApiError ? err.message : 'Could not change the PIN')
+    } finally {
+      setChanging(false)
     }
   }
 
@@ -132,7 +143,7 @@ export function SettingsScreen() {
 
         <div className="card">
           <h2>Security</h2>
-          <button className="row" style={{ borderTop: 0 }} onClick={() => setPinSheet(true)}>
+          <button className="row" style={{ borderTop: 0 }} onClick={openPinSheet}>
             <Icon name="lock" className="picon" />
             <span className="grow title">Change the house PIN</span>
             <Icon name="more" className="picon" />
@@ -162,7 +173,8 @@ export function SettingsScreen() {
               <div className="help">Digits only, so the sign-in keypad can type it.</div>
             </div>
             {pinError ? <p className="note err">{pinError}</p> : null}
-            <button className="btn primary block" disabled={current.length < 4 || next.length < 4 || next.length > 8} onClick={() => void changePin()}>
+            <button className="btn primary block" disabled={changing || current.length < 4 || next.length < 4 || next.length > 8} onClick={() => void changePin()}>
+              {changing ? <span className="spinner sm" /> : null}
               Change PIN
             </button>
           </Sheet>

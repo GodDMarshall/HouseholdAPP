@@ -15,11 +15,18 @@ export function HomeScreen() {
   const pending = usePending()
   const [lockUp, setLockUp] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const illustrative = devices.filter((d) => d.family === 'virtual')
   const removeIllustrative = async () => {
-    for (const d of illustrative) await api.del(`/api/devices/${d.id}`).catch(() => undefined)
-    setClearing(false)
-    useStore.getState().toast('Illustrative devices and their pretend WiFi networks removed', 'info')
+    if (removing) return
+    setRemoving(true)
+    try {
+      for (const d of illustrative) await api.del(`/api/devices/${d.id}`).catch(() => undefined)
+      useStore.getState().toast('Illustrative devices and their pretend WiFi networks removed', 'info')
+    } finally {
+      setRemoving(false)
+      setClearing(false)
+    }
   }
 
   const rooms = useMemo(() => {
@@ -85,7 +92,8 @@ export function HomeScreen() {
         {clearing ? (
           <Sheet title="Remove the illustrative devices?" subtitle={`${illustrative.map((d) => d.name).join(', ')}. Your own devices are not touched.`} onClose={() => setClearing(false)}>
             <div className="btnrow">
-              <button className="btn danger" onClick={() => void removeIllustrative()}>
+              <button className="btn danger" disabled={removing} onClick={() => void removeIllustrative()}>
+                {removing ? <span className="spinner sm" /> : null}
                 Remove them
               </button>
               <button className="btn ghost" onClick={() => setClearing(false)}>
@@ -191,8 +199,10 @@ function Tile({ device, state }: { device: Device; state: DeviceState | undefine
   const togglable = device.capabilities.includes('power')
   const on = isOn(state)
   const onTap = () => {
-    if (togglable && online) void act(device.id, 'power.toggle')
-    else open()
+    // A second tap while the first is still on its way would switch it straight back.
+    if (togglable && online) {
+      if (!busy) void act(device.id, 'power.toggle')
+    } else open()
   }
   return (
     <div className={`tile ${on ? 'on' : ''} ${state && !online ? 'off-line' : ''}`} role="button" tabIndex={0} onClick={onTap} onKeyDown={(e) => e.key === 'Enter' && onTap()} aria-label={`${device.name}, ${stateLine(device, state)}`}>

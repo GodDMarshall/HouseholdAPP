@@ -161,7 +161,7 @@ function LiveVideo({ deviceId, onFail }: { deviceId: string; onFail: (reason: st
       video.src = URL.createObjectURL(ms)
     }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${location.host}/video/api/ws?src=${encodeURIComponent(deviceId)}&token=${encodeURIComponent(getToken() ?? '')}`)
+    const ws = new WebSocket(`${proto}://${location.host}/video/api/ws?src=${encodeURIComponent(deviceId)}`, ['hc-token', getToken() ?? 'none'])
     ws.binaryType = 'arraybuffer'
     let sb: SourceBuffer | null = null
     const queue: ArrayBuffer[] = []

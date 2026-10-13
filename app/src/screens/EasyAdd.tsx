@@ -231,7 +231,11 @@ function Radar({ devices, scanning, hub, phase, onPick }: { devices: DiscoveredD
           <line key={d.host} x1="50" y1="50" x2={x} y2={y} className={`link ${d.existingDeviceId ? 'known' : ''}`} />
         ))}
       </svg>
-      {scanning ? <div className="sweep" /> : null}
+      {scanning ? (
+        <div className="sweepbox">
+          <div className="sweep" />
+        </div>
+      ) : null}
       <div className="core">
         <span />
         <Icon name="home" />

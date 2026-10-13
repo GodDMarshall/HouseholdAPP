@@ -292,7 +292,8 @@ const adapter: Adapter = {
         const number = ctx.path.kind === 'sms' ? ctx.path.host : ctx.device.paths.find((x) => x.kind === 'sms' && x.enabled)?.host
         if (!number) return { ok: false, error: 'This device has no SMS connection with a phone number' }
         const out = await ctx.sms(number, String(p.text ?? ''))
-        return out.sent ? { ok: true } : { ok: true, needsConfirmation: true, result: { handoff: out.handoff } }
+        if (!out.sent && !out.handoff) return { ok: false, error: out.error ?? 'The text could not be sent' }
+        return out.sent ? { ok: true, result: { via: 'sms' } } : { ok: true, needsConfirmation: true, result: { handoff: out.handoff, text: String(p.text ?? '') } }
       }
       case 'custom':
         return { ok: false, error: 'Illustrative devices have no custom commands' }

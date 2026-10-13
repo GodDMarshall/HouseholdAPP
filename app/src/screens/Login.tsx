@@ -47,6 +47,13 @@ export function LoginScreen({ mode, onDone }: { mode: 'setup' | 'login'; onDone:
         useStore.getState().setAuth('login')
         return
       }
+      if (mode === 'login' && err instanceof ApiError && err.status === 409) {
+        // The PIN was reset: this phone chooses the new one.
+        setPin('')
+        setError('The PIN was reset. Choose a new one.')
+        useStore.getState().setAuth('setup')
+        return
+      }
       fail(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {
       setBusy(false)
@@ -62,11 +69,31 @@ export function LoginScreen({ mode, onDone }: { mode: 'setup' | 'login'; onDone:
     const onKey = (e: KeyboardEvent) => {
       if (/^\d$/.test(e.key)) press(e.key)
       else if (e.key === 'Backspace') setPin((p) => p.slice(0, -1))
-      else if (e.key === 'Enter') void submit()
+      else if (e.key === 'Enter') {
+        // Enter must not also "click" the keypad button that still has focus.
+        e.preventDefault()
+        void submit()
+      } else return
+      e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+
+  // "Try again in N s" counts down and goes away by itself.
+  useEffect(() => {
+    const m = error ? /Try again in (\d+) s/.exec(error) : null
+    if (!m) return
+    let left = Number(m[1])
+    const t = window.setInterval(() => {
+      left -= 1
+      if (left <= 0) {
+        window.clearInterval(t)
+        setError(null)
+      } else setError(`Too many wrong PINs. Try again in ${left} s`)
+    }, 1000)
+    return () => window.clearInterval(t)
+  }, [error])
 
   const title = mode === 'setup' ? (first === null ? 'Choose a PIN' : 'Type it again') : 'House Control'
   const hint =
