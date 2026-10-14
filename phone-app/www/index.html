@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>House Control</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --card: #1b1f2a;
+        --card-2: #242a38;
+        --line: #2d3446;
+        --text: #e8ebf2;
+        --muted: #9aa3b8;
+        --accent: #5eead4;
+        --accent-ink: #0b2a26;
+        --danger: #f87171;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+      body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); }
+      .logo { width: 84px; height: 84px; margin-bottom: 14px; }
+      h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: 0.2px; }
+      .status { color: var(--muted); margin: 0 0 22px; text-align: center; min-height: 1.4em; }
+      .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; margin: 6px auto 20px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+      .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
+      .chips { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+      .chip { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--card-2); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-size: 16px; min-height: 56px; cursor: pointer; }
+      .chip:active { background: var(--line); }
+      .chip .grow { flex: 1; min-width: 0; }
+      .chip .name { font-weight: 600; overflow-wrap: anywhere; }
+      .chip .hint { color: var(--muted); font-size: 13px; }
+      .chip .x { color: var(--muted); font-size: 20px; padding: 0 2px; }
+      label { display: block; color: var(--muted); font-size: 14px; margin: 6px 0; }
+      .row { display: flex; gap: 8px; }
+      input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 14px; font-size: 17px; }
+      input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+      .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 14px 18px; font-size: 16px; font-weight: 700; min-height: 52px; cursor: pointer; }
+      .btn.ghost { background: transparent; color: var(--muted); font-weight: 500; }
+      .btn:disabled { opacity: 0.5; }
+      .note { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+      .err { color: var(--danger); font-size: 14px; margin: 10px 0 0; min-height: 1.2em; }
+      .hidden { display: none !important; }
+      .foot { color: var(--muted); font-size: 12px; margin-top: 18px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
+      <rect width="100" height="100" rx="22" fill="#1b1f2a" />
+      <polygon points="50,26 84,50 16,50" fill="#5eead4" />
+      <rect x="26" y="50" width="48" height="26" fill="#5eead4" />
+      <rect x="44" y="58" width="12" height="18" fill="#1b1f2a" />
+    </svg>
+    <h1>House Control</h1>
+    <p class="status" id="status">Looking for the hub…</p>
+    <div class="spinner" id="spinner"></div>
+
+    <div class="card hidden" id="card">
+      <h2>Where is the hub?</h2>
+      <div class="chips" id="chips"></div>
+      <label for="addr">Or type its address</label>
+      <div class="row">
+        <input id="addr" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.7:8080" />
+        <button class="btn" id="open" type="button">Open</button>
+      </div>
+      <p class="err" id="err"></p>
+      <p class="note">The hub is the small server on the house PC. On the house WiFi it is usually the PC's address with :8080. Away from home, use the Tailscale address.</p>
+      <button class="btn ghost" id="retry" type="button" style="width: 100%; margin-top: 8px">Look again</button>
+    </div>
+    <p class="foot">Nothing is stored in this app except the hub's address.</p>
+
+    <script type="module">
+      import { forget, hint, label, loadKnown, loadLast, normalise, order, pick, remember } from './launcher.js'
+
+      const $ = (id) => document.getElementById(id)
+      const status = $('status'), spinner = $('spinner'), card = $('card'), chips = $('chips'), addr = $('addr'), err = $('err')
+      const store = window.localStorage
+
+      function go(base) {
+        remember(store, base)
+        status.textContent = 'Opening ' + label(base) + '…'
+        card.classList.add('hidden')
+        spinner.classList.remove('hidden')
+        // Open the hub's own app in this WebView. The start screen is not kept in the history: Back from the house leaves the app.
+        location.replace(base + '/')
+      }
+
+      function showChoices(message) {
+        spinner.classList.add('hidden')
+        status.textContent = message
+        chips.replaceChildren()
+        for (const base of order(loadKnown(store), loadLast(store))) {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.className = 'chip'
+          b.innerHTML = '<span class="grow"><div class="name"></div><div class="hint"></div></span><span class="x" aria-label="Forget" title="Forget">×</span>'
+          b.querySelector('.name').textContent = label(base)
+          b.querySelector('.hint').textContent = hint(base)
+          b.addEventListener('click', (e) => {
+            if (e.target.classList.contains('x')) {
+              forget(store, base)
+              showChoices(message)
+              return
+            }
+            go(base)
+          })
+          chips.appendChild(b)
+        }
+        card.classList.remove('hidden')
+      }
+
+      async function find() {
+        err.textContent = ''
+        card.classList.add('hidden')
+        spinner.classList.remove('hidden')
+        status.textContent = 'Looking for the hub…'
+        const found = await pick(order(loadKnown(store), loadLast(store)))
+        if (found) go(found)
+        else showChoices('No hub answered. Is the phone on the house WiFi, or Tailscale on?')
+      }
+
+      $('open').addEventListener('click', () => {
+        const base = normalise(addr.value)
+        if (!base) {
+          err.textContent = 'That does not look like an address. Try 192.168.1.7:8080'
+          return
+        }
+        go(base)
+      })
+      addr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') $('open').click()
+      })
+      $('retry').addEventListener('click', () => void find())
+
+      // "Change hub address" in the app's Settings comes back here with ?choose
+      if (new URLSearchParams(location.search).has('choose')) showChoices('Choose where the hub is.')
+      else void find()
+    </script>
+  </body>
+</html>

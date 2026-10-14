@@ -22,6 +22,8 @@ function uptime(sec: number): string {
 }
 
 export function SettingsScreen() {
+  // Inside the Android app the start screen (at the app's own address) picks the hub; it is reached again from here.
+  const inShell = /HouseControlShell/.test(navigator.userAgent)
   const status = useStore((s) => s.status)
   const connected = useStore((s) => s.connected)
   const toast = useStore((s) => s.toast)
@@ -139,6 +141,13 @@ export function SettingsScreen() {
           )}
           {video && video.go2rtc !== 'running' && video.detail ? <p className="note">{video.detail}</p> : null}
           {sms && sms.modem !== 'connected' && sms.detail ? <p className="note">{sms.detail}</p> : null}
+          {inShell ? (
+            <button className="row" onClick={() => location.assign('http://localhost/?choose')}>
+              <Icon name="wifi" className="picon" />
+              <span className="grow title">Change hub address</span>
+              <Icon name="more" className="picon" />
+            </button>
+          ) : null}
         </div>
 
         <div className="card">

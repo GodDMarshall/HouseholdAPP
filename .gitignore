@@ -11,3 +11,8 @@ Thumbs.db
 e2e/shots/
 backups/
 e2e/tmp/
+
+# Android signing keys stay on this PC
+phone-app/signing/
+*.keystore
+*.jks

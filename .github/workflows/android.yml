@@ -1,0 +1,98 @@
+name: Android app
+
+# Builds the House Control Android shell (phone-app/) into an installable APK
+# on GitHub's machines, which already have Java and the Android SDK, and
+# attaches it to the "android-latest" release so the phone can download it
+# directly. Runs when the shell changes, or by hand from the Actions tab.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'phone-app/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Launcher tests
+        run: npm test -w phone-app
+
+      - name: Copy the launcher into the Android project
+        run: npx cap sync android
+        working-directory: phone-app
+
+      # The signing key is a repository secret, never a file in the repo. Without the
+      # secret the APK is signed with a throwaway debug key: it installs fine, but a
+      # newer APK then needs the old app uninstalled first. See docs/ANDROID-APP.md.
+      - name: Signing key from the repository secret, if there is one
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/house-control.keystore"
+            echo "HC_KEYSTORE=$RUNNER_TEMP/house-control.keystore" >> "$GITHUB_ENV"
+            echo "Signing with the repository's own key."
+          else
+            echo "No ANDROID_KEYSTORE_B64 secret: signing with a debug key (uninstall the old app before installing a newer APK)."
+          fi
+
+      - name: Build the signed APK
+        env:
+          HC_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          HC_KEY_ALIAS: housecontrol
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+        working-directory: phone-app/android
+
+      - name: Name it
+        run: |
+          mkdir -p out
+          cp phone-app/android/app/build/outputs/apk/release/app-release.apk out/House-Control.apk
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: House-Control-apk
+          path: out/House-Control.apk
+          if-no-files-found: error
+
+      - name: Attach to the android-latest release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: House Control for Android
+          body: |
+            Install this on the phone: download House-Control.apk, open it, allow installing from this source once.
+            The app opens the hub's own screens, so it does not need updating when the hub changes.
+            Built from ${{ github.sha }}.
+          files: out/House-Control.apk
+          prerelease: false
+          make_latest: true

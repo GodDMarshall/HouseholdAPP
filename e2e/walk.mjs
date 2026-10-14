@@ -530,6 +530,14 @@ try {
   await sleep(800)
   check('Settings shows hub status', (await text()).includes('Version') && (await text()).includes('Live video'))
   await shot('settings')
+  // Inside the Android shell (its user agent says so) Settings offers the way back to the start screen.
+  const ua = await browser.userAgent()
+  await page.setUserAgent(ua + ' HouseControlShell')
+  await page.reload({ waitUntil: 'networkidle2' })
+  check('Inside the Android app, Settings offers "Change hub address"', await waitText('Change hub address', 5000))
+  await page.setUserAgent(ua)
+  await page.reload({ waitUntil: 'networkidle2' })
+  check('In a browser, that row is not shown', !(await text()).includes('Change hub address'))
 
   // ---- 13. sign out and back in
   await clickText('button.row', 'Sign out')

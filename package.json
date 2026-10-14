@@ -2,11 +2,12 @@
   "name": "house-control",
   "version": "0.1.0",
   "private": true,
-  "description": "House Control \u2014 a private hub and touch-first app for the whole house: cameras, gate, lights, with WiFi/SIM failover.",
+  "description": "House Control — a private hub and touch-first app for the whole house: cameras, gate, lights, with WiFi/SIM failover.",
   "workspaces": [
     "shared",
     "hub",
-    "app"
+    "app",
+    "phone-app"
   ],
   "engines": {
     "node": ">=22.13"

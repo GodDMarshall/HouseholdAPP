@@ -1,0 +1,17 @@
+{
+  "appId": "com.goddmarshall.housecontrol",
+  "appName": "House Control",
+  "webDir": "www",
+  "appendUserAgent": "HouseControlShell",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "*"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0f1115"
+  }
+}
