@@ -103,11 +103,17 @@ export function SettingsScreen() {
               </span>
               <span className="desc">Gate opened, a device moved to another connection, something unreachable, a command that failed.</span>
             </span>
-            <button className={`btn sm ${subscribed ? '' : 'primary'}`} onClick={() => void togglePush()}>
-              {subscribed ? 'Turn off' : 'Turn on'}
-            </button>
+            {!inShell ? (
+              <button className={`btn sm ${subscribed ? '' : 'primary'}`} onClick={() => void togglePush()}>
+                {subscribed ? 'Turn off' : 'Turn on'}
+              </button>
+            ) : null}
           </div>
-          {support !== 'ok' ? <p className="note warn">{pushSupportText(support)}</p> : null}
+          {inShell ? (
+            <p className="note">Inside this app, messages arrive while it is open. For notifications when it is closed, install the app from Chrome through the Tailscale https address (see the remote access guide).</p>
+          ) : support !== 'ok' ? (
+            <p className="note warn">{pushSupportText(support)}</p>
+          ) : null}
           {subscribed ? (
             <button className="btn sm" style={{ marginTop: 10 }} onClick={() => void api.post('/api/push/test').then(() => toast('Test sent', 'info'))}>
               Send a test notification
@@ -163,12 +169,14 @@ export function SettingsScreen() {
           </button>
         </div>
 
-        <div className="card">
-          <h2>Put it on the home screen</h2>
-          <p className="desc" style={{ color: 'var(--muted)', fontSize: 14 }}>
-            Android: browser menu {'→'} Install app. iPhone: Share {'→'} Add to Home Screen. It then opens full screen like any other app.
-          </p>
-        </div>
+        {!inShell ? (
+          <div className="card">
+            <h2>Put it on the home screen</h2>
+            <p className="desc" style={{ color: 'var(--muted)', fontSize: 14 }}>
+              Android: browser menu {'→'} Install app. iPhone: Share {'→'} Add to Home Screen. It then opens full screen like any other app.
+            </p>
+          </div>
+        ) : null}
 
         {pinSheet ? (
           <Sheet title="Change the house PIN" subtitle="This phone stays signed in. Every other phone is signed out and asks for the new PIN." onClose={() => setPinSheet(false)}>

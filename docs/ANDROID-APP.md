@@ -8,17 +8,30 @@ app, it never needs updating when the hub's app changes.
 
 ## Get it on the phone
 
-1. On the phone, open the **android-latest** release of the repository
-   (Releases on the GitHub page) and download `House-Control.apk`.
-2. Open the download. Android asks once to allow installing from this source;
-   allow it. If the phone says "App not installed" over an older copy, uninstall
-   the old one first and install again.
-3. Open **House Control**. It looks for the hub on the house WiFi
-   (`192.168.1.7:8080`) and through Tailscale (`100.124.59.5:8080`) and opens
-   whichever answers. If neither does, it shows both and a box to type another
-   address.
+1. On the phone, in Chrome, open the **android-latest** release of the
+   repository (Releases on the GitHub page). Under **Assets** tap
+   `House-Control.apk`, not "Source code". If the repository is private, sign
+   in to GitHub in Chrome first, or the release will not show. Chrome warns
+   that this kind of file can harm the phone: tap **Download anyway**.
+2. Open the download (Chrome's download bar, or the Downloads app). The first
+   time, the phone says it is not allowed to install unknown apps from this
+   source: tap **Settings**, switch on **Allow from this source**, then go
+   back. A Xiaomi / Redmi phone may add its own "Install anyway" or a short
+   security scan; tap through. If the phone says "App not installed" over an
+   older copy, uninstall the old one first and install again.
+3. Open **House Control**. The hub must be running on the house PC (the PC on
+   and signed in; see the README, Start with Windows). The app looks for the
+   hub on the house WiFi (`192.168.1.7:8080`) and through Tailscale
+   (`100.124.59.5:8080`, with the Tailscale app switched on) and opens whichever
+   answers. If neither does, it shows both and a box to type another address.
+   The hub's address is shown on the house PC at http://localhost:8080 under
+   Settings → The hub → Address. Give the PC a fixed address in the router (a
+   DHCP reservation) so it stays 192.168.1.7 after a router reset; with
+   Tailscale on the phone the app finds the hub even if the WiFi address moves.
 
-The first time, the app asks for the hub's PIN, like the browser does.
+The first time through each address (house WiFi, Tailscale, or one typed in)
+the app asks the house PIN, as a browser would. If no PIN has been chosen yet,
+it asks you to choose one.
 
 ## Where the APK comes from
 
@@ -66,6 +79,14 @@ only thing the shell stores.
   still pictures, here as everywhere.
 - The Back button steps back inside the app; from the house screen it leaves
   the app.
+- Inside the app, Settings hides the browser-only advice (installing from
+  Chrome, turning notifications on).
+
+## What the shell trusts
+
+The shell lets its screen open any address you type, so that a hub that has
+moved to another address still opens inside the app. That also means any page
+you open in it is treated like the hub. Only type the hub's address.
 
 ## Building it on this PC instead
 

@@ -13,6 +13,8 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- The app is always dark: the strip under the status and gesture bars must be too. -->
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
     </style>
 
 

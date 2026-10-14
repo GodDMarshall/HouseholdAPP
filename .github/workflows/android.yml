@@ -4,6 +4,11 @@ name: Android app
 # on GitHub's machines, which already have Java and the Android SDK, and
 # attaches it to the "android-latest" release so the phone can download it
 # directly. Runs when the shell changes, or by hand from the Actions tab.
+#
+# Two jobs on purpose: the build runs with a read-only token and no stored
+# credentials, so nothing that npm, Capacitor or Gradle downloads can push to
+# the repository; only the small release job may write, and it runs no
+# third-party code except the pinned release action.
 
 on:
   push:
@@ -14,18 +19,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-apk
   cancel-in-progress: true
 
 jobs:
-  apk:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -83,9 +90,30 @@ jobs:
           path: out/House-Control.apk
           if-no-files-found: error
 
+  release:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: House-Control-apk
+          path: out
+
+      # The release is found by its tag, but the tag itself would otherwise stay on the
+      # first build's commit for ever; move it so the release page matches the APK.
+      - name: Move the android-latest tag to this commit
+        run: |
+          git tag -f android-latest
+          git push -f origin android-latest
+
       - name: Attach to the android-latest release
-        if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: android-latest
           name: House Control for Android

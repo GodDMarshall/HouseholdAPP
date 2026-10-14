@@ -67,13 +67,14 @@
         <button class="btn" id="open" type="button">Open</button>
       </div>
       <p class="err" id="err"></p>
-      <p class="note">The hub is the small server on the house PC. On the house WiFi it is usually the PC's address with :8080. Away from home, use the Tailscale address.</p>
+      <button class="btn ghost hidden" id="anyway" type="button" style="width: 100%">Open it anyway</button>
+      <p class="note">The hub is the small server on the house PC, so the PC must be on and signed in. On the house WiFi the hub is the PC's address with :8080 (the PC shows it under Settings → The hub). Away from home, use the Tailscale address with Tailscale switched on.</p>
       <button class="btn ghost" id="retry" type="button" style="width: 100%; margin-top: 8px">Look again</button>
     </div>
     <p class="foot">Nothing is stored in this app except the hub's address.</p>
 
     <script type="module">
-      import { forget, hint, label, loadKnown, loadLast, normalise, order, pick, remember } from './launcher.js'
+      import { forget, hint, label, loadKnown, loadLast, normalise, order, pick, reachable, remember } from './launcher.js'
 
       const $ = (id) => document.getElementById(id)
       const status = $('status'), spinner = $('spinner'), card = $('card'), chips = $('chips'), addr = $('addr'), err = $('err')
@@ -119,16 +120,36 @@
         status.textContent = 'Looking for the hub…'
         const found = await pick(order(loadKnown(store), loadLast(store)))
         if (found) go(found)
-        else showChoices('No hub answered. Is the phone on the house WiFi, or Tailscale on?')
+        else showChoices('No hub answered. Is the house PC on with the hub running, and is the phone on the house WiFi or Tailscale?')
       }
 
-      $('open').addEventListener('click', () => {
+      // A typed address is only remembered once something answers there; otherwise a typo
+      // would become a permanent chip that is probed at every start.
+      let unanswered = null
+      $('open').addEventListener('click', async () => {
         const base = normalise(addr.value)
         if (!base) {
           err.textContent = 'That does not look like an address. Try 192.168.1.7:8080'
+          $('anyway').classList.add('hidden')
           return
         }
-        go(base)
+        if (unanswered === base) return go(base)
+        $('open').disabled = true
+        err.textContent = ''
+        const ok = await reachable(base)
+        $('open').disabled = false
+        if (ok) return go(base)
+        unanswered = base
+        err.textContent = 'Nothing answered at ' + label(base) + '. Is the hub running, and is the phone on the same network?'
+        $('anyway').classList.remove('hidden')
+      })
+      $('anyway').addEventListener('click', () => {
+        const base = normalise(addr.value)
+        if (base) go(base)
+      })
+      addr.addEventListener('input', () => {
+        unanswered = null
+        $('anyway').classList.add('hidden')
       })
       addr.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') $('open').click()

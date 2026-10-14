@@ -38,8 +38,8 @@ npm start
 3. **Remove the illustrative devices** once your own are in (open one, Edit, Remove).
 4. **Live video**: run `scripts\get-go2rtc.ps1` once. Until then cameras show stills.
 5. **Use it away from home, and get notifications**: [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md).
-6. **Android phone**: install the House Control app from the [android-latest release](https://github.com/GodDMarshall/HouseholdAPP/releases/tag/android-latest); it opens the hub's own screens. [docs/ANDROID-APP.md](docs/ANDROID-APP.md).
-7. **Start with Windows**: `powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1`.
+6. **Start with Windows** (the phone app needs the hub running): `powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1`.
+7. **Android phone**: install the House Control app from the [android-latest release](https://github.com/GodDMarshall/HouseholdAPP/releases/tag/android-latest); it opens the hub's own screens. [docs/ANDROID-APP.md](docs/ANDROID-APP.md).
 8. **Back up** now and then: `npm run backup`.
 
 ## What is in the box
