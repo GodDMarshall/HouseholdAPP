@@ -277,7 +277,7 @@ describe('one address found by two methods', () => {
 
   it('a Smart Life device announcing itself beats the sweep\u2019s guess and keeps its id', () => {
     const sweep: DiscoveredDevice = { family: 'tuya-local', kind: 'switch', name: 'Smart Life device', host: '192.168.1.2', port: 6668, detail: 'Tuya', config: {}, via: 'scan', needs: ['deviceId', 'localKey'] }
-    const heard: DiscoveredDevice = { ...sweep, detail: 'Tuya protocol 3.5', config: { deviceId: 'd79c9d1dc34fc0628bhkq7', version: '3.5' }, via: 'tuya', needs: ['localKey'] }
+    const heard: DiscoveredDevice = { ...sweep, detail: 'Tuya protocol 3.5', config: { deviceId: 'bf0000000000000000abcd', version: '3.5' }, via: 'tuya', needs: ['localKey'] }
     for (const [first, second] of [
       [sweep, heard],
       [heard, sweep],
@@ -285,7 +285,7 @@ describe('one address found by two methods', () => {
       const kept = better(better(undefined, first), second)
       expect(kept.detail).toBe('Tuya protocol 3.5')
       expect(kept.needs).toEqual(['localKey'])
-      expect(kept.config).toEqual({ deviceId: 'd79c9d1dc34fc0628bhkq7', version: '3.5' })
+      expect(kept.config).toEqual({ deviceId: 'bf0000000000000000abcd', version: '3.5' })
     }
   })
 
