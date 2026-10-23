@@ -18,7 +18,8 @@ if (!fs.existsSync(file)) {
 const db = new DatabaseSync(file)
 const had = db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key = 'pin_hash'").get().n
 const sessions = db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n
-db.exec("DELETE FROM settings WHERE key = 'pin_hash'; DELETE FROM sessions;")
+// The wrong-PIN lock goes too: a forgotten PIN usually comes with a few wrong tries first.
+db.exec("DELETE FROM settings WHERE key IN ('pin_hash', 'pin_lock'); DELETE FROM sessions;")
 const devices = db.prepare('SELECT COUNT(*) AS n FROM devices').get().n
 db.close()
 console.log(had ? 'PIN cleared.' : 'There was no PIN set.')
