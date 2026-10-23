@@ -42,7 +42,7 @@ export interface ApiDeps {
   log: Logger
 }
 
-const PUBLIC = new Set(['/api/auth/status', '/api/auth/setup', '/api/auth/login'])
+const PUBLIC = new Set(['/api/auth/status', '/api/auth/setup', '/api/auth/login', '/api/hello'])
 
 /** Pictures come from devices; whatever they contain must never run as a page of the hub. */
 const SNAPSHOT_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'"
@@ -156,6 +156,16 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // ---------------------------------------------------------------- auth
 
   app.get('/api/auth/status', async (req) => ({ configured: auth.isConfigured(), authenticated: auth.verify(tokenOf(req)) }))
+  /**
+   * Who is here. Lets the phone app's start screen find the hub on the house network
+   * after the router has handed the PC a new address: it asks every address, and only
+   * this answer counts as a hub. No sign-in, no secrets: the hub's name, version and addresses.
+   */
+  app.get('/api/hello', async (_req, reply) => {
+    const s = deps.status()
+    reply.header('Access-Control-Allow-Origin', '*')
+    return { app: 'house-control', name: s.hostname, version: s.version, port: config.port, addresses: s.addresses }
+  })
   app.post('/api/auth/setup', async (req) => {
     const body = z.object({ pin: z.string(), label: z.string().optional() }).parse(req.body)
     return { token: auth.setup(body.pin, body.label ?? describeClient(req)) }

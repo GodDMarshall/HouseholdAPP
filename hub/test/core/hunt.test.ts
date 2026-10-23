@@ -272,3 +272,21 @@ describe('a recorder with several cameras', () => {
     expect(noAuth.statusCode).toBe(401)
   })
 })
+
+describe('the phone app finding the hub', () => {
+  it('answers /api/hello to anyone, from any origin, with who it is and no secrets', async () => {
+    const res = await t.hub.app.inject({ method: 'GET', url: '/api/hello', headers: { origin: 'http://localhost' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['access-control-allow-origin']).toBe('*')
+    const body = res.json()
+    expect(body.app).toBe('house-control')
+    expect(typeof body.name).toBe('string')
+    expect(Array.isArray(body.addresses)).toBe(true)
+    expect(Number.isInteger(body.port)).toBe(true)
+    expect(Object.keys(body).sort()).toEqual(['addresses', 'app', 'name', 'port', 'version'])
+    // everything else still needs the PIN
+    const other = await t.hub.app.inject({ method: 'GET', url: '/api/hub/status' })
+    expect(other.statusCode).toBe(401)
+    expect(other.headers['access-control-allow-origin']).toBeUndefined()
+  })
+})

@@ -154,7 +154,9 @@ export async function createHub(config: Config, log: Logger = logger('hub')): Pr
 
 export function localAddresses(): string[] {
   const out: string[] = []
-  for (const list of Object.values(os.networkInterfaces())) {
+  // Real adapters only: a virtual switch (WSL, Hyper-V, VirtualBox, VMware, Docker) is not an address a phone can reach.
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (/vEthernet|WSL|Hyper-V|VirtualBox|VMware|Docker|Loopback/i.test(name)) continue
     for (const i of list ?? []) if (i.family === 'IPv4' && !i.internal) out.push(i.address)
   }
   return out

@@ -20,14 +20,16 @@ app, it never needs updating when the hub's app changes.
    security scan; tap through. If the phone says "App not installed" over an
    older copy, uninstall the old one first and install again.
 3. Open **House Control**. The hub must be running on the house PC (the PC on
-   and signed in; see the README, Start with Windows). The app looks for the
-   hub on the house WiFi (`192.168.1.7:8080`) and through Tailscale
-   (`100.124.59.5:8080`, with the Tailscale app switched on) and opens whichever
-   answers. If neither does, it shows both and a box to type another address.
-   The hub's address is shown on the house PC at http://localhost:8080 under
-   Settings → The hub → Address. Give the PC a fixed address in the router (a
-   DHCP reservation) so it stays 192.168.1.7 after a router reset; with
-   Tailscale on the phone the app finds the hub even if the WiFi address moves.
+   and signed in; see the README, Start with Windows). The app asks the
+   addresses where the hub was last seen, on the house WiFi and through
+   Tailscale (with the Tailscale app switched on). If none answers, it looks
+   around the whole house network for the hub, which takes a few seconds, so
+   the router giving the PC a new address does not matter. Only a House Control
+   hub counts; a camera recorder or the router at an address is passed over.
+   If nothing is found, it shows the known addresses and a box to type one. The
+   hub's address is shown on the house PC at http://localhost:8080 under
+   Settings → The hub → Address. A fixed address for the PC in the router (a
+   DHCP reservation) still saves those few seconds.
 
 The first time through each address (house WiFi, Tailscale, or one typed in)
 the app asks the house PIN, as a browser would. If no PIN has been chosen yet,

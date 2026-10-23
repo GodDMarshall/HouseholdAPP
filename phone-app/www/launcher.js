@@ -6,8 +6,11 @@
 // dependencies so it can be unit-tested with "node --test" and run in the
 // WebView as a module.
 
-/** Where the hub usually is: on the house WiFi, and through Tailscale when away. */
-export const DEFAULT_HUBS = ['http://192.168.1.7:8080', 'http://100.124.59.5:8080']
+/** Where the hub has been seen: on the house WiFi, and through Tailscale when away. Only hints; the sweep finds a hub that moved. */
+export const DEFAULT_HUBS = ['http://192.168.1.5:8080', 'http://192.168.1.7:8080', 'http://100.124.59.5:8080']
+/** House networks to look around when no known address answers (the router hands out addresses here). */
+export const DEFAULT_SUBNETS = ['192.168.1', '192.168.0']
+export const HUB_PORT = 8080
 
 const LAST_KEY = 'hc.shell.hub'
 const KNOWN_KEY = 'hc.shell.hubs'
@@ -27,7 +30,7 @@ export function normalise(input) {
   if (!/^https?:$/.test(url.protocol) || !url.hostname) return null
   // An address is numbers with dots or a plain name with dots: "nope!" parses as a URL but is not one.
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(url.hostname)) return null
-  if (!url.port && url.protocol === 'http:') url.port = '8080'
+  if (!url.port && url.protocol === 'http:') url.port = String(HUB_PORT)
   return url.origin
 }
 
@@ -42,23 +45,69 @@ export function order(known, last) {
 }
 
 /**
- * Does a hub answer at this address? A no-cors fetch resolves on any HTTP
- * answer (the hub sets no CORS headers, and it need not) and rejects only when
- * nothing is there, so it is a reachability test, not a login.
+ * Is a House Control hub at this address? The hub answers /api/hello to any
+ * origin, with no sign-in, saying who it is and every address it has. Only that
+ * answer counts: a router, a recorder or any other web page at the address is
+ * not a hub. Returns the hub's answer, or null.
  */
-export async function reachable(base, { timeoutMs = 2500, fetchImpl = globalThis.fetch } = {}) {
+export async function isHub(base, { timeoutMs = 2500, fetchImpl = globalThis.fetch } = {}) {
   try {
-    await fetchImpl(base + '/api/auth/status', { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
-    return true
+    const res = await fetchImpl(base + '/api/hello', { mode: 'cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data && data.app === 'house-control' ? data : null
   } catch {
-    return false
+    return null
   }
 }
 
-/** Probe every candidate at once; return the first in preference order that answered, or null. */
-export async function pick(candidates, probe = reachable) {
+/** Probe every candidate at once; return the first in preference order that is a hub, as { base, hello }, or null. */
+export async function pick(candidates, probe = isHub) {
   const answers = await Promise.all(candidates.map((c) => probe(c)))
-  return candidates.find((_, i) => answers[i]) ?? null
+  const i = answers.findIndex(Boolean)
+  return i >= 0 ? { base: candidates[i], hello: answers[i] } : null
+}
+
+/** The house networks behind a list of addresses: "http://192.168.1.7:8080" -> "192.168.1". Tailscale addresses are not networks to look around. */
+export function subnetsOf(bases) {
+  const out = []
+  for (const b of bases) {
+    let host
+    try {
+      host = new URL(b).hostname
+    } catch {
+      continue
+    }
+    const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(host)
+    if (!m || m[1].startsWith('100.') || out.includes(m[1])) continue
+    out.push(m[1])
+  }
+  return out
+}
+
+/**
+ * Look around the house network for a hub that moved: ask every address on each
+ * subnet, a few dozen at a time, and stop at the first that answers as a hub.
+ * A WebView cannot know the phone's own address, so the networks come from the
+ * addresses that worked before plus the usual home ranges.
+ */
+export async function sweep(subnets, { probe = isHub, port = HUB_PORT, skip = [], concurrency = 40, timeoutMs = 1200 } = {}) {
+  const todo = []
+  for (const s of subnets) for (let n = 1; n <= 254; n++) {
+    const base = `http://${s}.${n}:${port}`
+    if (!skip.includes(base)) todo.push(base)
+  }
+  let found = null
+  let next = 0
+  const worker = async () => {
+    while (!found && next < todo.length) {
+      const base = todo[next++]
+      const hello = await probe(base, { timeoutMs })
+      if (hello && !found) found = { base, hello }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker))
+  return found
 }
 
 export function loadKnown(storage) {
@@ -79,11 +128,17 @@ export function loadLast(storage) {
   }
 }
 
-/** Remember an address that worked: it becomes the first choice next time. */
-export function remember(storage, base) {
+/**
+ * Remember an address that worked: it becomes the first choice next time. The
+ * hub's own answer lists every address it has (house WiFi and Tailscale), so
+ * those are remembered too and the next start tries them without a sweep.
+ */
+export function remember(storage, base, hello = null) {
   try {
     storage.setItem(LAST_KEY, base)
-    const known = [base, ...loadKnown(storage).filter((x) => x !== base)].slice(0, MAX_KNOWN)
+    const port = hello && Number.isInteger(hello.port) ? hello.port : HUB_PORT
+    const others = Array.isArray(hello?.addresses) ? hello.addresses.map((a) => normalise(`${a}:${port}`)).filter(Boolean) : []
+    const known = [base, ...others, ...loadKnown(storage)].filter((x, i, all) => x !== null && all.indexOf(x) === i).slice(0, MAX_KNOWN)
     storage.setItem(KNOWN_KEY, JSON.stringify(known))
   } catch {
     /* storage can be off; the shell still opens the hub */
@@ -103,7 +158,7 @@ export function forget(storage, base) {
 export function label(base) {
   try {
     const u = new URL(base)
-    const port = u.port && !(u.protocol === 'http:' && u.port === '8080') ? ':' + u.port : ''
+    const port = u.port && !(u.protocol === 'http:' && u.port === String(HUB_PORT)) ? ':' + u.port : ''
     return u.hostname + port
   } catch {
     return base

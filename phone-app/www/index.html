@@ -74,14 +74,14 @@
     <p class="foot">Nothing is stored in this app except the hub's address.</p>
 
     <script type="module">
-      import { forget, hint, label, loadKnown, loadLast, normalise, order, pick, reachable, remember } from './launcher.js'
+      import { DEFAULT_SUBNETS, forget, hint, isHub, label, loadKnown, loadLast, normalise, order, pick, remember, subnetsOf, sweep } from './launcher.js'
 
       const $ = (id) => document.getElementById(id)
       const status = $('status'), spinner = $('spinner'), card = $('card'), chips = $('chips'), addr = $('addr'), err = $('err')
       const store = window.localStorage
 
-      function go(base) {
-        remember(store, base)
+      function go(base, hello = null) {
+        remember(store, base, hello)
         status.textContent = 'Opening ' + label(base) + '…'
         card.classList.add('hidden')
         spinner.classList.remove('hidden')
@@ -118,8 +118,14 @@
         card.classList.add('hidden')
         spinner.classList.remove('hidden')
         status.textContent = 'Looking for the hub…'
-        const found = await pick(order(loadKnown(store), loadLast(store)))
-        if (found) go(found)
+        const known = order(loadKnown(store), loadLast(store))
+        let found = await pick(known)
+        if (!found) {
+          // The router may have given the PC a new address: ask every address on the house network.
+          status.textContent = 'Looking around the house network…'
+          found = await sweep([...subnetsOf(known), ...DEFAULT_SUBNETS.filter((s) => !subnetsOf(known).includes(s))], { skip: known })
+        }
+        if (found) go(found.base, found.hello)
         else showChoices('No hub answered. Is the house PC on with the hub running, and is the phone on the house WiFi or Tailscale?')
       }
 
@@ -136,11 +142,11 @@
         if (unanswered === base) return go(base)
         $('open').disabled = true
         err.textContent = ''
-        const ok = await reachable(base)
+        const hello = await isHub(base)
         $('open').disabled = false
-        if (ok) return go(base)
+        if (hello) return go(base, hello)
         unanswered = base
-        err.textContent = 'Nothing answered at ' + label(base) + '. Is the hub running, and is the phone on the same network?'
+        err.textContent = 'No hub answered at ' + label(base) + '. Is the hub running, and is the phone on the same network?'
         $('anyway').classList.remove('hidden')
       })
       $('anyway').addEventListener('click', () => {
